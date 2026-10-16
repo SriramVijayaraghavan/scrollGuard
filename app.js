@@ -201,7 +201,9 @@ function vHome() {
       ${canUnlock && S.settings.lookup ? `<div class="row"><input id="h-${k}" placeholder="🔎 @handle to look up" style="flex:1;min-width:140px"><button data-go="${k}">Profile</button><button data-lookup="${k}">Search 10 min</button></div>` : ''}</div>`;
   }).join('') || '<div class="card mu">No services enabled. Turn them on in Limits.</div>';
   const p = S.pending ? `<div class="card"><div class="row"><span>⏱ ${APPS[S.pending.app].name} session running…</span><button class="p" data-end>I'm back</button></div><div class="mu">Time is added automatically when you return to this tab.</div></div>` : '';
-  return `<h1>ScrollGuard</h1>${p}${cards}${vStats()}`;
+  const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
+  const warn = standalone ? `<div class="card"><b>⚠️ Blocking won't work from this icon</b><div class="mu">Home Screen web-app mode opens Instagram in a built-in browser where Safari extensions don't run, and it keeps separate logins. Delete this icon, open ScrollGuard in Safari, tap Share → Add to Home Screen, and turn OFF "Open as Web App".</div></div>` : '';
+  return `<h1>ScrollGuard</h1>${warn}${p}${cards}${vStats()}`;
 }
 const resolveApp = v => { const k = v.trim().toLowerCase(); return APPS[k] ? k : (v.trim() || 'Other'); };
 const label = n => APPS[n] ? APPS[n].icon + ' ' + APPS[n].name : '📱 ' + n;
