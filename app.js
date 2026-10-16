@@ -3,7 +3,7 @@
 
 // ---------- constants ----------
 const KEY = 'scrollguard.v1';
-const BUILD = '2026-10-16.4';
+const BUILD = '2026-10-16.5';
 const APPS = {
   instagram: { name: 'Instagram', open: 'https://www.instagram.com/direct/inbox/', full: 'https://www.instagram.com/' },
   tiktok: { name: 'TikTok', open: 'https://www.tiktok.com/', full: 'https://www.tiktok.com/' },
@@ -197,6 +197,7 @@ const I = {
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
   trash: '<path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/>',
   shield: '<path d="M12 3.5 19 6v5.5c0 4.2-3 7.2-7 9-4-1.8-7-4.8-7-9V6z"/><path d="m9 12 2.2 2.2L15.5 10"/>',
+  shieldPhone: '<path d="M12 3.5 19 6v5.5c0 4.2-3 7.2-7 9-4-1.8-7-4.8-7-9V6z"/><rect x="9.6" y="8" width="4.8" height="8.2" rx="1.2"/><path d="M11.2 9.8h1.6"/><circle cx="12" cy="14.8" r=".35" fill="currentColor"/>',
   news: '<rect x="5" y="5" width="14" height="14" rx="2.5"/><path d="M8.5 9h7M8.5 12.5h7M8.5 16h4"/>',
   film: '<rect x="4" y="6" width="16" height="12" rx="2.5"/><path d="m10.5 9.5 4 2.5-4 2.5z"/>',
 };
@@ -279,7 +280,7 @@ const seg = (key, opts, cur) => `<div class="seg" role="group">${opts.map(([v, l
 // ---------- welcome ----------
 function vWelcome() {
   return `<form class="welcome" data-form="signup">
-    <div class="mark"><svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--accent-t)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I.shield}</svg></div>
+    <div class="mark"><svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--accent-t)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I.shieldPhone}</svg></div>
     <div><h1>Hello, welcome to ScrollGuard.</h1><p class="lead" style="margin-top:8px">What should we call you?</p></div>
     <div class="fields"><input class="field" id="w-name" placeholder="Name" autocomplete="given-name" autocapitalize="words" required></div>
     <div class="err" id="err"></div>
