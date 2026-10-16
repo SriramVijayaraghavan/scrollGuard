@@ -337,6 +337,7 @@ function vLimits() {
       <div class="pad days">${DAYS.map((d, i) => `<button data-a="day" data-k="${k}.${i}" class="${a.days.includes(i) ? 'on' : ''}" aria-label="${DAYNAMES[i]}">${d}</button>`).join('')}</div>` : '';
     const rest = a.mode !== 'off' ? `
       ${trow('Block the whole app', 'Instead of hiding feeds.', sw(`data-f="${k}.whole"`, a.whole))}
+      <div class="pad sub" style="margin:0">Switch on to block it while the app is restricted. Switch off to let it through.</div>
       ${TARGETS[k].map(([t, l]) => trow(l, '', sw(`data-t="${k}.${t}"`, a.targets[t]))).join('')}` : '';
     return `<div class="group">${head_}
       <div class="pad">${seg(`${k}.mode`, [['off', 'Off'], ['schedule', 'Scheduled'], ['always', 'Always']], a.mode)}</div>${sched}${rest}
