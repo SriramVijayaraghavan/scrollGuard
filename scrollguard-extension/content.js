@@ -17,16 +17,21 @@ function blockPage(back) {
   setTimeout(go, 0);
 }
 const toMin = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+function inWin(w, now) {
+  const cur = now.getHours() * 60 + now.getMinutes(), s = toMin(w.start), e = toMin(w.end), dow = now.getDay();
+  if (s === e) return false;
+  if (e > s) return w.days.includes(dow) && cur >= s && cur < e;
+  if (cur >= s) return w.days.includes(dow);
+  if (cur < e) return w.days.includes((dow + 6) % 7);
+  return false;
+}
 function windowLocked(a, now = new Date()) {
   if (a.blockAll) return 'all';
   if (a.mode === 'off') return false;
   if (a.unlockUntil && a.unlockUntil > now.getTime()) return false;
   if (a.mode === 'always') return true;
-  const cur = now.getHours() * 60 + now.getMinutes(), s = toMin(a.start), e = toMin(a.end), dow = now.getDay();
-  if (e > s) return a.days.includes(dow) && cur >= s && cur < e;
-  if (cur >= s) return a.days.includes(dow);
-  if (cur < e) return a.days.includes((dow + 6) % 7);
-  return false;
+  const ws = a.windows || [{ start: a.start, end: a.end, days: a.days }]; // older configs had one window
+  return ws.some(w => inWin(w, now));
 }
 // [target, css hide selectors, path regexes to redirect away from]
 const RULES = {

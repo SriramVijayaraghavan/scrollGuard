@@ -3,7 +3,7 @@
 
 // ---------- constants ----------
 const KEY = 'scrollguard.v1';
-const BUILD = '2026-10-16.7';
+const BUILD = '2026-10-16.8';
 const APPS = {
   instagram: { name: 'Instagram', open: 'https://www.instagram.com/direct/inbox/', full: 'https://www.instagram.com/' },
   tiktok: { name: 'TikTok', open: 'https://www.tiktok.com/', full: 'https://www.tiktok.com/' },
@@ -31,7 +31,7 @@ const TARGETS = {
   youtube: [['shortsTab', 'Shorts tab and scrolling'], ['shortsShelf', 'Shorts inside the feed'], ['homeFeed', 'Home recommendations'], ['related', 'Related videos']],
 };
 const defTargets = k => Object.fromEntries(TARGETS[k].map(([t]) => [t, (['reelsTab', 'reelsFeed', 'forYou', 'following', 'explore', 'shortsTab', 'shortsShelf'].includes(t) && !(k === 'instagram' && t === 'explore')) || (k === 'instagram' && t === 'dmsOnly')]));
-const defApp = k => ({ on: true, whole: k === 'tiktok', mode: 'schedule', start: '09:00', end: '17:00', days: [0, 1, 2, 3, 4, 5, 6], blockAll: false, targets: defTargets(k) });
+const defApp = k => ({ on: true, whole: k === 'tiktok', mode: 'schedule', windows: [{ start: '09:00', end: '17:00', days: [0, 1, 2, 3, 4, 5, 6] }], blockAll: false, targets: defTargets(k) });
 const def = () => ({
   first: dayKey(), tab: 'home', account: null,
   ui: { theme: 'auto', accent: '#122a6b', v: 3 },
@@ -47,6 +47,7 @@ function load() {
   try {
     const o = JSON.parse(localStorage.getItem(KEY)) || {};
     o.apps = o.apps || {};
+    for (const k of KEYS) { const oa = o.apps[k]; if (oa && !oa.windows && (oa.start || oa.end || oa.days)) oa.windows = [{ start: oa.start || '09:00', end: oa.end || '17:00', days: oa.days || [0, 1, 2, 3, 4, 5, 6] }]; }
     for (const k of KEYS) o.apps[k] = Object.assign(d.apps[k], o.apps[k], { targets: Object.assign(d.apps[k].targets, (o.apps[k] || {}).targets) });
     o.learn = Object.assign(d.learn, o.learn, { src: Object.assign(d.learn.src, (o.learn || {}).src) });
     o.settings = Object.assign(d.settings, o.settings);
@@ -74,22 +75,29 @@ let greet; try { greet = sessionStorage.getItem('sg.greet'); } catch {}
 if (!greet) { greet = pick(GREETS); try { sessionStorage.setItem('sg.greet', greet); } catch {} }
 
 // ---------- restriction logic ----------
+// Minutes left in this window if it is active right now, else null. A window's days are the day it starts,
+// so 11 PM to 6:30 AM on Monday runs until Tuesday morning. Start equal to end is ignored.
+function minsInWindow(w, now) {
+  const cur = now.getHours() * 60 + now.getMinutes(), s = toMin(w.start), e = toMin(w.end), dow = now.getDay();
+  if (s === e) return null;
+  if (e > s) return w.days.includes(dow) && cur >= s && cur < e ? e - cur : null;
+  if (cur >= s) return w.days.includes(dow) ? 1440 - cur + e : null;
+  if (cur < e) return w.days.includes((dow + 6) % 7) ? e - cur : null;
+  return null;
+}
 function status(app, now = new Date()) {
   const a = S.apps[app], ov = S.override[app];
   if (!a.on) return { active: false };
   if (a.blockAll) return { active: true, reason: 'blocked entirely', full: true };
   if (a.mode === 'off') return { active: false };
-  let inWin = true, minsLeft = null;
+  let minsLeft = null, reason = 'Always on';
   if (a.mode === 'schedule') {
-    const cur = now.getHours() * 60 + now.getMinutes(), s = toMin(a.start), e = toMin(a.end), dow = now.getDay();
-    if (e > s) { inWin = a.days.includes(dow) && cur >= s && cur < e; if (inWin) minsLeft = e - cur; }
-    else if (cur >= s) { inWin = a.days.includes(dow); minsLeft = 1440 - cur + e; }
-    else if (cur < e) { inWin = a.days.includes((dow + 6) % 7); minsLeft = e - cur; }
-    else inWin = false;
+    const act = a.windows.map(w => ({ w, m: minsInWindow(w, now) })).filter(x => x.m !== null).sort((x, y) => y.m - x.m);
+    if (!act.length) return { active: false };
+    minsLeft = act[0].m; reason = `${fmtTime(act[0].w.start)} to ${fmtTime(act[0].w.end)}`;
   }
-  if (!inWin) return { active: false };
   if (ov && ov > now.getTime()) return { active: false, overridden: true };
-  return { active: true, whole: !!a.whole, reason: a.mode === 'always' ? 'Always on' : `${fmtTime(a.start)} to ${fmtTime(a.end)}`, minsLeft };
+  return { active: true, whole: !!a.whole, reason, minsLeft };
 }
 // What the user may still do while an app is restricted.
 function allowed(k, st) {
@@ -99,7 +107,7 @@ function allowed(k, st) {
 // Tasks without a date count as due today. Tasks due on a later day don't block unlocking.
 const dueOf = t => t.due || dayKey();
 const gateTasks = () => S.tasks.filter(t => dueOf(t) <= dayKey());
-const allDone = () => { const g = gateTasks(); return g.length > 0 && g.every(t => t.done); };
+const allDone = () => gateTasks().every(t => t.done); // no tasks due counts as done
 const dueMs = t => new Date(dueOf(t) + 'T' + (t.dueTime || '23:59') + ':00').getTime();
 function dueLabel(t) {
   const d = dueOf(t), now = new Date(), tm = new Date(now); tm.setDate(tm.getDate() + 1);
@@ -242,7 +250,7 @@ function exportConfig() {
   const apps = {};
   for (const k of KEYS) {
     const a = S.apps[k];
-    apps[k] = { mode: a.on ? a.mode : 'off', start: a.start, end: a.end, days: a.days, blockAll: a.blockAll, whole: !!a.whole, targets: a.targets, unlockUntil: S.override[k] || 0, lookupUntil: S.lookup[k] || 0, track: S.settings.track, back: IS_STANDALONE ? '' : location.origin + location.pathname };
+    apps[k] = { mode: a.on ? a.mode : 'off', windows: a.windows, blockAll: a.blockAll, whole: !!a.whole, targets: a.targets, unlockUntil: S.override[k] || 0, lookupUntil: S.lookup[k] || 0, track: S.settings.track, back: IS_STANDALONE ? '' : location.origin + location.pathname };
   }
   return JSON.stringify({ v: 1, apps });
 }
@@ -351,7 +359,7 @@ function vSheet() {
     <div class="group"><div class="pad fields"><input class="field" id="h-handle" placeholder="@handle" autocapitalize="none" autocorrect="off" spellcheck="false"></div>
     <div class="pad" style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><button class="btn" data-a="go" data-k="${k}">Profile</button><button class="btn" data-a="search" data-k="${k}">Search 10 min</button></div></div>
     <p class="hint">Search opens the whole site for 10 minutes while feeds stay hidden.</p>` : '';
-  const unl = st.active && !st.full ? `<div class="group"><div class="row"><span class="lbl"><b>Unlock ${A.name}</b><span class="sub">${S.settings.requireTasks ? (can ? 'All tasks are done.' : `Finish ${left} task${left === 1 ? '' : 's'} first.`) : 'Your tasks are not required.'}</span></span><button class="btn sm" data-a="unlock" data-k="${k}" ${can ? '' : 'disabled'}>Unlock</button></div></div>` : '';
+  const unl = st.active && !st.full ? `<div class="group"><div class="row"><span class="lbl"><b>Unlock ${A.name}</b><span class="sub">${S.settings.requireTasks ? (can ? (gateTasks().length ? 'All tasks are done.' : 'No tasks are due.') : `Finish ${left} task${left === 1 ? '' : 's'} first.`) : 'Your tasks are not required.'}</span></span><button class="btn sm" data-a="unlock" data-k="${k}" ${can ? '' : 'disabled'}>Unlock</button></div></div>` : '';
   return `<div class="sheet" role="dialog" aria-modal="true"><div class="sheet-in">
     <div><button class="icon-btn" data-a="close" aria-label="Close">${ico('close')}</button></div>
     <div class="mark">${logo(k, 84)}</div>
@@ -379,9 +387,12 @@ function vLimits() {
     const head_ = `<div class="row"><span style="display:flex;align-items:center;gap:12px">${logo(k, 34)}<b style="font-size:17px;font-weight:600">${APPS[k].name}</b></span>${sw(`data-f="${k}.on"`, a.on)}</div>`;
     if (!a.on) return `<div class="group">${head_}</div>`;
     const sched = a.mode === 'schedule' ? `
-      <div class="row"><span class="lbl"><b>Starts</b></span><input class="field" type="time" value="${a.start}" data-f="${k}.start"></div>
-      <div class="row"><span class="lbl"><b>Ends</b></span><input class="field" type="time" value="${a.end}" data-f="${k}.end"></div>
-      <div class="pad days">${DAYS.map((d, i) => `<button data-a="day" data-k="${k}.${i}" class="${a.days.includes(i) ? 'on' : ''}" aria-label="${DAYNAMES[i]}">${d}</button>`).join('')}</div>` : '';
+      ${a.windows.map((w, i) => `<div class="row"><span class="lbl"><b>${a.windows.length > 1 ? 'Window ' + (i + 1) : 'Time window'}</b></span>${a.windows.length > 1 ? `<button class="x" data-a="rmwin" data-k="${k}.${i}" aria-label="Remove window ${i + 1}">${ico('trash', 20)}</button>` : ''}</div>
+      <div class="row"><span class="lbl"><b>Starts</b></span><input class="field" type="time" value="${w.start}" data-w="${k}.${i}.start"></div>
+      <div class="row"><span class="lbl"><b>Ends</b></span><input class="field" type="time" value="${w.end}" data-w="${k}.${i}.end"></div>
+      <div class="pad days">${DAYS.map((d, j) => `<button data-a="day" data-k="${k}.${i}.${j}" class="${w.days.includes(j) ? 'on' : ''}" aria-label="${DAYNAMES[j]}">${d}</button>`).join('')}</div>`).join('')}
+      <div class="pad"><button class="btn block" data-a="addwin" data-k="${k}">Add time window</button></div>
+      <div class="pad sub" style="margin:0">A window that ends before it starts runs overnight. Days are the day it starts.</div>` : '';
     const rest = a.mode !== 'off' ? `
       ${trow('Block the whole app', 'Instead of hiding feeds.', sw(`data-f="${k}.whole"`, a.whole))}
       <div class="pad sub" style="margin:0">Switch on to block it while the app is restricted. Switch off to let it through.</div>
@@ -605,7 +616,9 @@ document.addEventListener('click', async e => {
     case 'range': histRange = v; break;
     case 'theme': S.ui.theme = v; break;
     case 'accent': S.ui.accent = v; break;
-    case 'day': { const [ak, i] = k.split('.'), d = S.apps[ak].days, n = +i; d.includes(n) ? d.splice(d.indexOf(n), 1) : d.push(n); break; }
+    case 'day': { const [ak, wi, di] = k.split('.'), d = S.apps[ak].windows[+wi].days, n = +di; d.includes(n) ? d.splice(d.indexOf(n), 1) : d.push(n); break; }
+    case 'addwin': S.apps[k].windows.push({ start: '23:00', end: '06:30', days: [0, 1, 2, 3, 4, 5, 6] }); break;
+    case 'rmwin': { const [ak, wi] = k.split('.'); S.apps[ak].windows.splice(+wi, 1); break; }
     case 'end': return endSession();
     case 'manual': addUsage($('#manApp').value, +$('#manMin').value || 0); break;
     case 'addtask': {
@@ -642,6 +655,7 @@ document.addEventListener('change', e => {
   if (d.t) { const [k, f] = d.t.split('.'); S.apps[k].targets[f] = val; }
   else if (d.ls) S.learn.src[d.ls] = val;
   else if (d.l) S.learn[d.l] = t.type === 'checkbox' ? val : t.value.trim();
+  else if (d.w) { const [k, i, f] = d.w.split('.'); S.apps[k].windows[+i][f] = val; }
   else if (d.f) { const [k, f] = d.f.split('.'); S.apps[k][f] = val; }
   else if (d.s) S.settings[d.s] = t.type === 'checkbox' ? val : (+t.value || 60);
   else if (d.toggle) return toggleTask(d.toggle);
