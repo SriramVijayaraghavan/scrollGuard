@@ -3,6 +3,7 @@
 
 // ---------- constants ----------
 const KEY = 'scrollguard.v1';
+const BUILD = '2026-10-16.4';
 const APPS = {
   instagram: { name: 'Instagram', open: 'https://www.instagram.com/direct/inbox/', full: 'https://www.instagram.com/' },
   tiktok: { name: 'TikTok', open: 'https://www.tiktok.com/', full: 'https://www.tiktok.com/' },
@@ -508,7 +509,9 @@ function vSettings() {
   <div class="group"><div class="pad">${seg('theme', [['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']], S.ui.theme).replace(/data-a="seg" data-k="theme"/g, 'data-a="theme"')}</div>
     <div class="row"><span class="lbl"><b>Accent color</b></span><div class="swatches">${ACCENTS.map(x => `<button data-a="accent" data-v="${x.c}" class="${S.ui.accent === x.c ? 'on' : ''}" style="background:${x.c}" aria-label="${x.n}"></button>`).join('')}</div></div></div>
   <div class="section-t">Data</div>
-  <div class="group"><div class="pad sub">Your name, limits and history live only in this browser on this phone. They are not backed up.</div><div class="pad"><button class="btn danger block" data-a="reset">Reset ScrollGuard</button></div></div>`;
+  <div class="group"><div class="pad sub">Your name, limits and history live only in this browser on this phone. They are not backed up.</div><div class="pad"><button class="btn danger block" data-a="reset">Reset ScrollGuard</button></div></div>
+  <div class="section-t">App version</div>
+  <div class="group"><div class="row"><span class="lbl"><b>Build ${BUILD}</b><span class="sub">If this isn't the latest, tap Refresh.</span></span><button class="btn sm" data-a="refresh">Refresh</button></div></div>`;
 }
 
 // ---------- render ----------
@@ -583,6 +586,10 @@ document.addEventListener('click', async e => {
     case 'addtopic': { const t = $('#topic').value.trim(); if (t && !S.learn.topics.includes(t)) S.learn.topics.push(t); break; }
     case 'rmtopic': S.learn.topics.splice(+v, 1); break;
     case 'reset': if (!confirm('Reset ScrollGuard? This erases your profile, limits and history on this phone.')) return; localStorage.removeItem(KEY); try { sessionStorage.clear(); } catch {} location.reload(); return;
+    case 'refresh': { // drop the offline cache and reload fresh
+      try { for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister(); for (const k of await caches.keys()) await caches.delete(k); } catch {}
+      location.reload(); return;
+    }
     case 'saveprofile': {
       const name = $('#s-name').value.trim();
       if (!name) return showErr('msg-profile', 'Enter your name.');
