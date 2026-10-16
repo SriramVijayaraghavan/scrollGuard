@@ -17,7 +17,12 @@ const IS_STANDALONE = navigator.standalone || matchMedia('(display-mode: standal
 const DAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const DAYNAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const GREETS = ['Welcome', 'Hello', 'Greetings', 'Salutations', "What's up", 'Hey there', 'Hi', 'Howdy', 'Good day', 'Welcome back'];
-const ACCENTS = [['#12a67c', 'Emerald'], ['#2f6bff', 'Cobalt'], ['#f0701f', 'Tangerine'], ['#e0414e', 'Crimson']];
+const ACCENTS = [ // c = fills, lt/dt = text and icons on light/dark surfaces
+  { c: '#1c3d99', lt: '#1c3d99', dt: '#7ea2ff', n: 'Navy' },
+  { c: '#12a67c', lt: '#0e8a66', dt: '#2fd0a2', n: 'Emerald' },
+  { c: '#d6303d', lt: '#c42631', dt: '#ff7580', n: 'Red' },
+  { c: '#cc5500', lt: '#b34700', dt: '#ff9347', n: 'Burnt orange' },
+];
 const TARGETS = {
   instagram: [['reelsTab', 'Reels tab and scrolling'], ['reelsFeed', 'Reels inside the feed'], ['explore', 'Explore page'], ['stories', 'Stories bar'], ['search', 'Search'], ['feed', 'Home feed posts'], ['dmsOnly', 'Everything except messages']],
   tiktok: [['forYou', 'For You feed'], ['following', 'Following feed'], ['explore', 'Explore'], ['live', 'LIVE']],
@@ -27,8 +32,8 @@ const defTargets = k => Object.fromEntries(TARGETS[k].map(([t]) => [t, (['reelsT
 const defApp = k => ({ on: true, whole: k === 'tiktok', mode: 'schedule', start: '09:00', end: '17:00', days: [0, 1, 2, 3, 4, 5, 6], blockAll: false, targets: defTargets(k) });
 const def = () => ({
   first: dayKey(), tab: 'home', account: null,
-  ui: { theme: 'auto', accent: '#12a67c' },
-  settings: { track: true, threshold: 60, requireTasks: true, lookup: true, safariHandoff: false, requirePw: true },
+  ui: { theme: 'auto', accent: '#1c3d99', v: 2 },
+  settings: { track: true, threshold: 60, requireTasks: true, lookup: true, safariHandoff: false },
   apps: Object.fromEntries(KEYS.map(k => [k, defApp(k)])),
   learn: { on: false, topics: [], ytOn: false, ytKey: '', src: { wiki: true, hn: true } },
   tasks: [], override: {}, lookup: {}, usage: {}, pending: null,
@@ -45,6 +50,8 @@ function load() {
     o.settings = Object.assign(d.settings, o.settings);
     o.ui = Object.assign(d.ui, o.ui);
     const s = Object.assign(d, o);
+    if (s.ui.v !== 2) { s.ui.accent = '#1c3d99'; s.ui.v = 2; } // navy is the new standard
+    if (s.account) s.account = { name: s.account.name };      // name only
     s.tab = 'home';
     return s;
   } catch { return d; }
@@ -59,17 +66,8 @@ const fmt = m => { m = Math.round(m); return m >= 60 ? Math.floor(m / 60) + 'h' 
 const enc = o => btoa(unescape(encodeURIComponent(JSON.stringify(o))));
 const fmtTime = t => { const [h, m] = t.split(':').map(Number); return ((h + 11) % 12 + 1) + (m ? ':' + String(m).padStart(2, '0') : '') + (h < 12 ? ' AM' : ' PM'); };
 
-// ---------- session / auth (local only) ----------
-let authed = false; try { authed = sessionStorage.getItem('sg.ok') === '1'; } catch {}
+// ---------- session ----------
 let sheet = null, histRange = 'week';
-const u8 = b => btoa(String.fromCharCode(...new Uint8Array(b)));
-async function hashPw(pw, saltB64) {
-  const salt = Uint8Array.from(atob(saltB64), c => c.charCodeAt(0));
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveBits']);
-  return u8(await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 150000, hash: 'SHA-256' }, key, 256));
-}
-const newSalt = () => u8(crypto.getRandomValues(new Uint8Array(16)));
-function setAuthed(v) { authed = v; try { v ? sessionStorage.setItem('sg.ok', '1') : sessionStorage.removeItem('sg.ok'); } catch {} }
 let greet; try { greet = sessionStorage.getItem('sg.greet'); } catch {}
 if (!greet) { greet = pick(GREETS); try { sessionStorage.setItem('sg.greet', greet); } catch {} }
 
@@ -142,21 +140,25 @@ function pastDays() {
   while (dayKey(d) >= S.first && out.length < 400) { out.push(dayKey(d)); d.setDate(d.getDate() - 1); }
   return out;
 }
-function streak() {
-  let n = 0;
-  if (used(dayKey()) > S.settings.threshold) return 0;
-  for (const k of pastDays()) { if (used(k) <= S.settings.threshold) n++; else break; }
-  return n;
-}
-const PET = [[0, 'Chick'], [7, 'Fox'], [14, 'Lion'], [30, 'Dragon']];
-const petIdx = n => PET.reduce((a, p, i) => n >= p[0] ? i : a, 0);
+const sum = arr => arr.reduce((x, y) => x + y, 0);
 const TIERS = [
-  { id: 'locked', name: 'Locked In', max: 120, range: '0 to 2 hrs', icon: 'brain', bg: 'var(--accent)' },
-  { id: 'light', name: 'Light Scroller', max: 180, range: '2 to 3 hrs', icon: 'ramp', bg: '#2f9e6b' },
-  { id: 'cutting', name: 'Cutting Back', max: 300, range: '3 to 5 hrs', icon: 'phone', bg: 'var(--warn)' },
-  { id: 'chud', name: 'Chud', max: Infinity, range: '5+ hrs', icon: 'heartbreak', bg: 'var(--danger)' },
+  { id: 'locked', name: 'Locked In', icon: 'brain', bg: 'var(--accent)', rule: 'Under 1h a day for 14 days' },
+  { id: 'light', name: 'Light Scroller', icon: 'ramp', bg: '#2f9e6b', rule: '3 days in a row under 3h' },
+  { id: 'cutting', name: 'Cutting Back', icon: 'phone', bg: '#c2760a', rule: 'Under 5h a day, last 3 days' },
+  { id: 'chud', name: 'Chud', icon: 'heartbreak', bg: 'var(--danger)', rule: '5h or more a day' },
 ];
-const tierFor = m => TIERS.find(t => m < t.max);
+// Badges look at completed days only (today is still in progress). Missing days count as zero.
+function badge() {
+  const t = pastDays().map(dayTotal);                      // newest first, since first use
+  if (!t.length) return null;
+  const l3 = t.slice(0, 3), a3 = sum(l3) / l3.length, n3 = l3.length;
+  const a14 = t.length >= 14 ? sum(t.slice(0, 14)) / 14 : null;
+  const next14 = t.length < 14 ? `${14 - t.length} more day${14 - t.length === 1 ? '' : 's'} of tracking to reach Locked In.` : `Get your 14 day average under 1h (now ${fmt(a14)}) to reach Locked In.`;
+  if (a14 !== null && a14 < 60) return { id: 'locked', note: `Averaging ${fmt(a14)} a day over the last 14 days.` };
+  if (t.length >= 3 && l3.every(m => m < 180)) return { id: 'light', note: `Under 3h each of the last 3 days. ${next14}` };
+  if (a3 < 300) return { id: 'cutting', note: `Averaging ${fmt(a3)} a day over the last ${n3} day${n3 === 1 ? '' : 's'}. Three days in a row under 3h makes you a Light Scroller.` };
+  return { id: 'chud', note: `Averaging ${fmt(a3)} a day over the last ${n3} day${n3 === 1 ? '' : 's'}. Get under 5h to move up.` };
+}
 function chartData(n) {
   const out = [], d = new Date();
   for (let i = 0; i < n; i++) {
@@ -194,19 +196,12 @@ const LOGO = {
 };
 const logo = (k, s = 44) => `<svg class="logo" width="${s}" height="${s}" viewBox="0 0 48 48" role="img" aria-label="${APPS[k].name}">${LOGO[k]}</svg>`;
 const BIG = {
-  brain: '<g fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M31 15c-2.5-4-9.5-3.5-12 1-4.5.6-7 5-5.5 9-3 2.6-2.4 8 1.6 10-.4 5 4 8.6 8.6 7.4 1.4 2.8 5 3.8 7.3 1.4z"/><path d="M33 15c2.5-4 9.5-3.5 12 1 4.5.6 7 5 5.5 9 3 2.6 2.4 8-1.6 10 .4 5-4 8.6-8.6 7.4-1.4 2.8-5 3.8-7.3 1.4z"/><path d="M22 27c2.6 0 4.6 1.8 4.6 4M42 27c-2.6 0-4.6 1.8-4.6 4M23 40c2.8 0 4-1.4 4-3.4M41 40c-2.8 0-4-1.4-4-3.4"/></g>',
-  ramp: '<g fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10 50h44V16z" fill="currentColor" fill-opacity=".22"/><path d="M18 40l13-8M36 24l8-5M44 19v8"/></g>',
-  phone: '<g fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><rect x="19" y="8" width="26" height="48" rx="6"/><path d="M28 14h8"/><circle cx="32" cy="48" r="2" fill="currentColor"/></g>',
-  heartbreak: '<g fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M32 55C14 42 8 32 8 23a12.5 12.5 0 0 1 22-7.5L32 18l2-2.5A12.5 12.5 0 0 1 56 23c0 9-6 19-24 32z"/><path d="M32 18l-6 10 9 6-6 12"/></g>',
+  brain: '<g fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"><path d="M31 15c-2.5-4-9.5-3.5-12 1-4.5.6-7 5-5.5 9-3 2.6-2.4 8 1.6 10-.4 5 4 8.6 8.6 7.4 1.4 2.8 5 3.8 7.3 1.4z"/><path d="M33 15c2.5-4 9.5-3.5 12 1 4.5.6 7 5 5.5 9 3 2.6 2.4 8-1.6 10 .4 5-4 8.6-8.6 7.4-1.4 2.8-5 3.8-7.3 1.4z"/><path d="M22 27c2.6 0 4.6 1.8 4.6 4M42 27c-2.6 0-4.6 1.8-4.6 4M23 40c2.8 0 4-1.4 4-3.4M41 40c-2.8 0-4-1.4-4-3.4"/></g>',
+  ramp: '<g stroke-linecap="round" stroke-linejoin="round"><path d="M8 52h48V16z" fill="currentColor" stroke="currentColor" stroke-width="4"/><path d="M12 22l9-9 9 9M21 13v14" fill="none" stroke="currentColor" stroke-width="3.6"/></g>',
+  phone: '<g fill="none" stroke="currentColor" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"><rect x="18" y="6" width="28" height="52" rx="7"/><path d="M27 12h10"/><circle cx="32" cy="50" r="2.4" fill="currentColor"/></g>',
+  heartbreak: '<path d="M32 57C12 43 6 32 6 22a13.5 13.5 0 0 1 24-8.4L32 17l2-3.4A13.5 13.5 0 0 1 58 22c0 10-6 21-26 35z" fill="currentColor"/><path d="M32 17l-6.5 11 10 6.5-7.5 13" fill="none" stroke="var(--bb)" stroke-width="4.4" stroke-linecap="round" stroke-linejoin="round"/>',
 };
-const bigIco = (n, s = 54) => `<svg width="${s}" height="${s}" viewBox="0 0 64 64" aria-hidden="true">${BIG[n]}</svg>`;
-const PETART = [
-  '<circle cx="32" cy="36" r="20" fill="#f5c542"/><path d="M14 34c-3 1-5 4-4 7 3-1 6-3 7-5z" fill="#e8b02c"/><circle cx="25" cy="31" r="2.6" fill="#1a1a1a"/><circle cx="39" cy="31" r="2.6" fill="#1a1a1a"/><path d="M28 37h8l-4 6z" fill="#f08a24"/><path d="M28 17c0-4 3-6 4-6s4 2 4 6c-2-1-6-1-8 0z" fill="#f5c542"/>',
-  '<path d="M9 12l15 12h16l15-12-2 26c-2 12-12 18-21 18S11 50 9 38z" fill="#e8772e"/><path d="M20 38c4 8 20 8 24 0-3 11-21 11-24 0z" fill="#fff"/><circle cx="24" cy="34" r="2.4" fill="#1a1a1a"/><circle cx="40" cy="34" r="2.4" fill="#1a1a1a"/><ellipse cx="32" cy="43" rx="3.2" ry="2.4" fill="#1a1a1a"/>',
-  '<circle cx="32" cy="34" r="25" fill="#bf8738"/><circle cx="32" cy="35" r="16" fill="#f0c27b"/><circle cx="14" cy="16" r="6" fill="#bf8738"/><circle cx="50" cy="16" r="6" fill="#bf8738"/><circle cx="26" cy="32" r="2.4" fill="#1a1a1a"/><circle cx="38" cy="32" r="2.4" fill="#1a1a1a"/><path d="M28 38h8l-4 4z" fill="#8a4b22"/><path d="M32 42v4M27 47c3 2 7 2 10 0" stroke="#8a4b22" stroke-width="2" fill="none" stroke-linecap="round"/>',
-  '<path d="M14 24 8 8l14 6M50 24l6-16-14 6" fill="#2b8a5c"/><circle cx="32" cy="35" r="21" fill="#3fae7a"/><path d="M20 22l-2-9 8 5M44 22l2-9-8 5" fill="#f2d16b"/><circle cx="24" cy="30" r="3.4" fill="#fbe36b"/><circle cx="40" cy="30" r="3.4" fill="#fbe36b"/><rect x="23" y="28" width="2" height="5" rx="1" fill="#1a1a1a"/><rect x="39" y="28" width="2" height="5" rx="1" fill="#1a1a1a"/><ellipse cx="32" cy="44" rx="10" ry="7" fill="#7ad0a0"/><circle cx="28" cy="43" r="1.5" fill="#1f6b47"/><circle cx="36" cy="43" r="1.5" fill="#1f6b47"/>',
-];
-const petArt = (i, s = 72) => `<svg width="${s}" height="${s}" viewBox="0 0 64 64" role="img" aria-label="${PET[i][1]}">${PETART[i]}</svg>`;
+const bigIco = (n, s = 54) => `<svg width="${s}" height="${s}" viewBox="5 5 54 54" aria-hidden="true">${BIG[n]}</svg>`;
 
 // ---------- config handed to the Safari blocker ----------
 function exportConfig() {
@@ -268,29 +263,15 @@ const head = (title, right) => `<header class="top"><h1>${title}</h1>${right ?? 
 const trow = (label, sub, ctl) => `<label class="row"><span class="lbl"><b>${label}</b>${sub ? `<span class="sub">${sub}</span>` : ''}</span>${ctl}</label>`;
 const seg = (key, opts, cur) => `<div class="seg" role="group">${opts.map(([v, l]) => `<button data-a="seg" data-k="${key}" data-v="${v}" class="${cur === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
 
-// ---------- welcome / login ----------
+// ---------- welcome ----------
 function vWelcome() {
-  return `<form class="welcome" data-form="signup" autocomplete="on">
-    <div class="mark"><svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I.shield}</svg></div>
-    <div><h1>Hello, welcome to ScrollGuard.</h1><p class="lead" style="margin-top:8px">Set up your profile to get started.</p></div>
-    <div class="fields">
-      <input class="field" id="w-name" placeholder="Name" autocomplete="given-name" autocapitalize="words" required>
-      <input class="field" id="w-email" type="email" placeholder="Email" autocomplete="email" required>
-      <input class="field" id="w-pw" type="password" placeholder="Password (6 or more characters)" autocomplete="new-password" required>
-    </div>
+  return `<form class="welcome" data-form="signup">
+    <div class="mark"><svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--accent-t)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I.shield}</svg></div>
+    <div><h1>Hello, welcome to ScrollGuard.</h1><p class="lead" style="margin-top:8px">What should we call you?</p></div>
+    <div class="fields"><input class="field" id="w-name" placeholder="Name" autocomplete="given-name" autocapitalize="words" required></div>
     <div class="err" id="err"></div>
-    <button class="btn primary block" type="submit">Create profile</button>
-    <p class="fine">Your details stay on this iPhone. They are not sent to any server, so they can't be recovered if you forget your password.</p>
-  </form>`;
-}
-function vLogin() {
-  return `<form class="welcome" data-form="login">
-    <div class="mark"><svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I.lock}</svg></div>
-    <div><h1>Welcome back, ${esc(S.account.name)}</h1><p class="lead" style="margin-top:8px">Enter your password to continue.</p></div>
-    <div class="fields"><input class="field" id="l-pw" type="password" placeholder="Password" autocomplete="current-password" required></div>
-    <div class="err" id="err"></div>
-    <button class="btn primary block" type="submit">Unlock</button>
-    <button class="link" type="button" data-a="reset">Forgot password? Reset the app</button>
+    <button class="btn primary block" type="submit">Continue</button>
+    <p class="fine">Your name stays on this iPhone. Nothing is sent to a server.</p>
   </form>`;
 }
 
@@ -369,7 +350,7 @@ function vLimits() {
     ${trow('Quick access', 'Profile lookup and 10 minute search.', sw('data-s="lookup"', S.settings.lookup))}
     ${trow('Track screen time', '', sw('data-s="track"', S.settings.track))}
     ${trow('Hand off to Safari', 'For Home Screen web-app mode. Experimental.', sw('data-s="safariHandoff"', S.settings.safariHandoff))}
-    <div class="row"><span class="lbl"><b>Daily Instagram goal</b><span class="sub">Minutes. Used for your streak.</span></span><input class="field" type="number" inputmode="numeric" style="width:84px;text-align:center" value="${S.settings.threshold}" data-s="threshold"></div>
+    <div class="row"><span class="lbl"><b>Daily Instagram goal</b><span class="sub">Minutes. Shown on your Home note.</span></span><input class="field" type="number" inputmode="numeric" style="width:84px;text-align:center" value="${S.settings.threshold}" data-s="threshold"></div>
   </div>
   <div class="section-t">Installed apps</div>
   <div class="group">
@@ -409,7 +390,8 @@ function vLearn() {
   <div class="group">
     ${trow('Educational Scroll', '', sw('data-l="on"', true))}
     <div class="pad" style="display:flex;gap:10px"><input class="field" id="topic" placeholder="Add a topic" enterkeyhint="done"><button class="btn primary" data-a="addtopic">Add</button></div>
-    <div class="pills" style="padding-top:12px">${l.topics.map((t, i) => `<span class="pill">${esc(t)}<button class="x" data-a="rmtopic" data-v="${i}" aria-label="Remove ${esc(t)}">${ico('close', 16)}</button></span>`).join('') || '<span class="sub">No topics yet. Try space, chess or Roman history.</span>'}</div>
+    <div><div class="pills" style="padding-top:12px">${l.topics.map((t, i) => `<button class="pill" data-a="rmtopic" data-v="${i}" aria-label="Remove ${esc(t)}">${esc(t)}${ico('close', 16)}</button>`).join('') || '<span class="sub">No topics yet. Try space, chess or Roman history.</span>'}</div>
+    ${l.topics.length ? '<p class="hint" style="padding:0 16px 14px;margin:0">Tap a topic to remove it.</p>' : ''}</div>
   </div>
   <div class="section-t">Sources</div>
   <div class="group">
@@ -488,18 +470,13 @@ function vChart(n) {
   return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Screen time per day for the last ${n} days, in minutes">${g}${bars}</svg></div>${legend}`;
 }
 function vHistory() {
-  const n = { day: 1, week: 7, month: 30 }[histRange];
-  const rows = chartData(n).filter(r => r.key >= S.first), use = rows.length ? rows : chartData(1);
-  const avg = use.reduce((a, r) => a + r.total, 0) / use.length, any = chartData(n).some(r => r.total > 0);
-  const tier = tierFor(avg), s = streak(), pi = petIdx(s), nxt = PET[pi + 1];
-  const per = { day: 'today', week: 'a day this week', month: 'a day this month' }[histRange];
+  const n = { day: 1, week: 7, month: 30 }[histRange], b = badge(), tier = b && TIERS.find(t => t.id === b.id);
   return `${head('History')}
   <div class="group"><div class="pad">${seg('range', [['day', 'Day'], ['week', 'Week'], ['month', 'Month']], histRange).replace(/data-a="seg" data-k="range"/g, 'data-a="range"')}</div>${vChart(n)}</div>
   <div class="section-t">Rewards</div>
-  <div class="group">${any ? `<div class="hero"><div class="you">You are a</div><div class="name">${tier.name}</div>
-    <div class="badge-art" style="background:${tier.bg}">${bigIco(tier.icon)}</div><div class="sub" style="margin:0">Averaging ${fmt(avg)} ${per}.</div></div>` : `<div class="hero"><div class="you">No badge yet</div><div class="sub" style="margin:0;max-width:280px">Your badge appears once ScrollGuard has logged some screen time.</div></div>`}
-    <div class="tiers">${TIERS.map(t => `<div class="tier ${any && t.id === tier.id ? 'on' : ''}"><b>${t.name}</b>${t.range}</div>`).join('')}</div></div>
-  <div class="group"><div class="pet-row">${petArt(pi)}<span class="lbl"><b>${PET[pi][1]}</b><span class="sub">${s}-day streak at or under your ${fmt(S.settings.threshold)} Instagram goal.</span>${nxt ? `<div class="bar-p" style="margin-top:10px"><i style="width:${Math.min(100, (s - PET[pi][0]) / (nxt[0] - PET[pi][0]) * 100)}%"></i></div><span class="sub">${nxt[0] - s} more day${nxt[0] - s === 1 ? '' : 's'} to become a ${nxt[1]}.</span>` : '<span class="sub">Top level reached.</span>'}</span></div></div>
+  <div class="group">${tier ? `<div class="hero"><div class="you">You are a</div><div class="name">${tier.name}</div>
+    <div class="badge-art" style="background:${tier.bg};--bb:${tier.bg}">${bigIco(tier.icon, 64)}</div><p class="sub" style="margin:0;max-width:300px;text-align:center">${b.note}</p></div>` : `<div class="hero"><div class="you">No badge yet</div><p class="sub" style="margin:0;max-width:280px;text-align:center">Your first badge appears tomorrow, after one full day of tracking.</p></div>`}</div>
+  <div class="group">${TIERS.map(t => `<div class="trow ${tier && t.id === tier.id ? 'on' : ''}"><span class="ti" style="background:${t.bg};--bb:${t.bg}">${bigIco(t.icon, 26)}</span><span class="lbl"><b>${t.name}</b><span class="sub">${t.rule}</span></span></div>`).join('')}</div>
   <div class="section-t">Add time manually</div>
   <div class="group"><div class="pad" style="display:grid;grid-template-columns:1fr 90px;gap:10px"><select class="field" id="manApp">${ORDER.map(k => `<option value="${k}">${NAMES[k]}</option>`).join('')}</select><input class="field" id="manMin" type="number" inputmode="numeric" placeholder="Min"></div>
   <div class="pad"><button class="btn block" data-a="manual">Add</button></div></div>`;
@@ -507,37 +484,32 @@ function vHistory() {
 
 // ---------- settings ----------
 function vSettings() {
-  const a = S.account;
   return `${head('Settings', `<button class="link" data-a="tab" data-v="home">Done</button>`)}
   <div class="section-t">Profile</div>
-  <div class="group"><div class="pad fields"><input class="field" id="s-name" value="${esc(a.name)}" placeholder="Name" autocomplete="given-name"><input class="field" id="s-email" type="email" value="${esc(a.email)}" placeholder="Email" autocomplete="email">
-    <div class="err" id="msg-profile"></div><button class="btn primary" data-a="saveprofile">Save changes</button></div></div>
-  <div class="section-t">Password</div>
-  <div class="group"><div class="pad fields"><input class="field" id="s-old" type="password" placeholder="Current password" autocomplete="current-password"><input class="field" id="s-new" type="password" placeholder="New password" autocomplete="new-password">
-    <div class="err" id="msg-pw"></div><button class="btn primary" data-a="changepw">Change password</button></div></div>
+  <div class="group"><div class="pad fields"><input class="field" id="s-name" value="${esc(S.account.name)}" placeholder="Name" autocomplete="given-name">
+    <div class="err" id="msg-profile"></div><button class="btn primary" data-a="saveprofile">Save name</button></div></div>
   <div class="section-t">Appearance</div>
   <div class="group"><div class="pad">${seg('theme', [['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']], S.ui.theme).replace(/data-a="seg" data-k="theme"/g, 'data-a="theme"')}</div>
-    <div class="row"><span class="lbl"><b>Accent color</b></span><div class="swatches">${ACCENTS.map(([c, n]) => `<button data-a="accent" data-v="${c}" class="${S.ui.accent === c ? 'on' : ''}" style="background:${c}" aria-label="${n}"></button>`).join('')}</div></div></div>
-  <div class="section-t">Security</div>
-  <div class="group">${trow('Ask for password when opening', '', sw('data-s="requirePw"', S.settings.requirePw))}
-    <div class="row"><span class="lbl"><b>Lock now</b></span><button class="btn sm" data-a="lock">Lock</button></div></div>
+    <div class="row"><span class="lbl"><b>Accent color</b></span><div class="swatches">${ACCENTS.map(x => `<button data-a="accent" data-v="${x.c}" class="${S.ui.accent === x.c ? 'on' : ''}" style="background:${x.c}" aria-label="${x.n}"></button>`).join('')}</div></div></div>
   <div class="section-t">Data</div>
-  <div class="group"><div class="pad sub">Your profile and settings live only in this browser on this phone. They are not backed up.</div><div class="pad"><button class="btn danger block" data-a="reset">Reset ScrollGuard</button></div></div>`;
+  <div class="group"><div class="pad sub">Your name, limits and history live only in this browser on this phone. They are not backed up.</div><div class="pad"><button class="btn danger block" data-a="reset">Reset ScrollGuard</button></div></div>`;
 }
 
 // ---------- render ----------
 const TABS = [['home', 'home', 'Home'], ['limits', 'sliders', 'Limits'], ['learn', 'book', 'Learn'], ['tasks', 'tasks', 'Tasks'], ['history', 'chart', 'History']];
 const VIEWS = { home: vHome, limits: vLimits, learn: vLearn, tasks: vTasks, history: vHistory, settings: vSettings };
+const isDark = () => S.ui.theme === 'dark' || (S.ui.theme === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
 function applyUI() {
-  const r = document.documentElement;
+  const r = document.documentElement, x = ACCENTS.find(z => z.c === S.ui.accent) || ACCENTS[0];
   S.ui.theme === 'auto' ? r.removeAttribute('data-theme') : r.setAttribute('data-theme', S.ui.theme);
-  r.style.setProperty('--accent', S.ui.accent);
+  r.style.setProperty('--accent', x.c);
+  r.style.setProperty('--accent-t', isDark() ? x.dt : x.lt);
 }
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => render());
 function render() {
   applyUI();
   const y = scrollY, nav = $('#nav');
   if (!S.account) { nav.hidden = true; $('#app').innerHTML = vWelcome(); return; }
-  if (S.settings.requirePw && !authed) { nav.hidden = true; $('#app').innerHTML = vLogin(); return; }
   nav.hidden = false;
   nav.innerHTML = TABS.map(([k, i, l]) => `<button class="${S.tab === k ? 'on' : ''}" data-a="tab" data-v="${k}" aria-label="${l}">${ico(i, 24)}${l}</button>`).join('');
   $('#app').innerHTML = (VIEWS[S.tab] || vHome)() + (sheet ? vSheet() : '');
@@ -589,19 +561,11 @@ document.addEventListener('click', async e => {
     case 'copygate': return copy(gateUrl(k), el);
     case 'addtopic': { const t = $('#topic').value.trim(); if (t && !S.learn.topics.includes(t)) S.learn.topics.push(t); break; }
     case 'rmtopic': S.learn.topics.splice(+v, 1); break;
-    case 'lock': setAuthed(false); break;
     case 'reset': if (!confirm('Reset ScrollGuard? This erases your profile, limits and history on this phone.')) return; localStorage.removeItem(KEY); try { sessionStorage.clear(); } catch {} location.reload(); return;
     case 'saveprofile': {
-      const name = $('#s-name').value.trim(), email = $('#s-email').value.trim();
+      const name = $('#s-name').value.trim();
       if (!name) return showErr('msg-profile', 'Enter your name.');
-      if (!/^\S+@\S+\.\S+$/.test(email)) return showErr('msg-profile', 'Enter a valid email.');
-      S.account.name = name; S.account.email = email; save(); render(); showErr('msg-profile', 'Saved.'); return;
-    }
-    case 'changepw': {
-      const old = $('#s-old').value, nw = $('#s-new').value;
-      if (await hashPw(old, S.account.salt) !== S.account.hash) return showErr('msg-pw', 'Current password is incorrect.');
-      if (nw.length < 6) return showErr('msg-pw', 'Use at least 6 characters.');
-      S.account.salt = newSalt(); S.account.hash = await hashPw(nw, S.account.salt); save(); render(); showErr('msg-pw', 'Password changed.'); return;
+      S.account.name = name; save(); render(); showErr('msg-profile', 'Saved.'); return;
     }
     default: return;
   }
@@ -619,19 +583,11 @@ document.addEventListener('change', e => {
   else return;
   save(); render();
 });
-document.addEventListener('submit', async e => {
-  const f = e.target.dataset.form; if (!f) return; e.preventDefault();
-  if (f === 'signup') {
-    const name = $('#w-name').value.trim(), email = $('#w-email').value.trim(), pw = $('#w-pw').value;
-    if (!name) return showErr('err', 'Enter your name.');
-    if (!/^\S+@\S+\.\S+$/.test(email)) return showErr('err', 'Enter a valid email.');
-    if (pw.length < 6) return showErr('err', 'Use at least 6 characters for your password.');
-    const salt = newSalt(); S.account = { name, email, salt, hash: await hashPw(pw, salt) }; S.first = dayKey();
-    setAuthed(true); save(); render();
-  } else if (f === 'login') {
-    if (await hashPw($('#l-pw').value, S.account.salt) !== S.account.hash) return showErr('err', 'That password is not correct.');
-    setAuthed(true); render();
-  }
+document.addEventListener('submit', e => {
+  if (e.target.dataset.form !== 'signup') return; e.preventDefault();
+  const name = $('#w-name').value.trim();
+  if (!name) return showErr('err', 'Enter your name.');
+  S.account = { name }; S.first = dayKey(); save(); render();
 });
 
 setInterval(() => { if (S.account && S.tab !== 'learn' && !document.hidden && !document.activeElement?.matches('input,textarea,select')) render(); }, 60000);
