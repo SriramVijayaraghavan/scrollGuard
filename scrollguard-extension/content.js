@@ -64,25 +64,62 @@ const SINGLE = {
   tiktok: [/^\/@[^/]+\/video\/(\d+)/, 'forYou'],
   youtube: [/^\/shorts\/([^/?]+)/, 'shortsTab'],
 };
-let pinned = null;
-// Freeze the page's own scroll areas around the video, so swiping can't reach the next one.
+let pinned = null; // { id, url, top }. id is a reel id, 'overlay' (a reel popped up inside a DM thread) or 'profile'
+const PROFILE = {
+  instagram: /^\/(?!(?:direct|explore|reels?|p|accounts|stories|tv|about|web)(?:\/|$))[A-Za-z0-9._]+\/?(?:(?:reels|tagged|saved)\/?)?$/,
+  tiktok: /^\/@[^/]+\/?$/,
+  youtube: /^\/(?:@[^/]+|channel\/[^/]+|c\/[^/]+|user\/[^/]+)(?:\/(?:featured|videos|shorts|streams|playlists|community))?\/?$/,
+};
 const frozen = new Map(); // element -> its original inline style, restored on release
 const FREEZE = [['overflow-y', 'hidden'], ['scroll-snap-type', 'none'], ['touch-action', 'none']];
 function freeze(e, props) {
   if (!frozen.has(e)) frozen.set(e, props.map(([k]) => [k, e.style.getPropertyValue(k), e.style.getPropertyPriority(k)]));
   for (const [k, v] of props) e.style.setProperty(k, v, 'important');
 }
+const DLG = '[role="dialog"]';
+const isComments = e => { const d = e.closest?.(DLG); return !!d && !d.querySelector('video'); }; // a dialog without a video is comments or a menu
+const visArea = v => { const r = v.getBoundingClientRect(); return Math.max(0, Math.min(r.bottom, innerHeight) - Math.max(r.top, 0)) * Math.max(0, Math.min(r.right, innerWidth) - Math.max(r.left, 0)); };
 function lockScrollers() {
-  document.querySelectorAll('video').forEach(v => {
-    for (let e = v.parentElement; e && e !== document.documentElement; e = e.parentElement) if (e.scrollHeight > e.clientHeight + 40) freeze(e, FREEZE);
-  });
+  const vids = [...document.querySelectorAll('video')];
+  // 1. freeze every scroll area around a video
+  vids.forEach(v => { for (let e = v.parentElement; e && e !== document.documentElement; e = e.parentElement) if (e.scrollHeight > e.clientHeight + 40) freeze(e, FREEZE); });
+  // 2. on a profile, freeze every big scroll area and hold the page at the top
+  if (pinned.top) {
+    for (const e of document.querySelectorAll('div,main,section')) if (e.clientHeight > innerHeight * 0.5 && e.scrollHeight > e.clientHeight + 40 && !isComments(e)) { freeze(e, FREEZE); e.scrollTop = 0; }
+    scrollTo(0, 0);
+  }
+  // 3. in a reel viewer, hide every other reel so there is nothing to swipe to
+  if (!pinned.top && vids.length > 1) {
+    const cur = vids.reduce((a, b) => visArea(b) > visArea(a) ? b : a);
+    for (const v of vids) {
+      if (v === cur) continue;
+      let e = v; while (e.parentElement && !e.parentElement.contains(cur)) e = e.parentElement;
+      if (e !== document.body && e !== document.documentElement && !e.contains(cur)) freeze(e, [['display', 'none']]);
+    }
+  }
   for (const el of [document.documentElement, document.body]) if (el) freeze(el, [['overflow', 'hidden'], ['touch-action', 'none']]);
+  // 4. no swipe gestures anywhere except in comments
+  if (!document.getElementById('sg-ta')) {
+    const s = document.createElement('style'); s.id = 'sg-ta';
+    s.textContent = `html,body,*{touch-action:none!important}${DLG}:not(:has(video)),${DLG}:not(:has(video)) *,input,textarea{touch-action:pan-y!important}`;
+    (document.head || document.documentElement).appendChild(s);
+  }
+}
+function badge(on) {
+  let b = document.getElementById('sg-lock');
+  if (!on) { b?.remove(); return; }
+  if (!b && document.body) {
+    b = document.createElement('div'); b.id = 'sg-lock'; b.textContent = 'ScrollGuard: scrolling locked';
+    b.style.cssText = 'position:fixed;top:6px;left:50%;transform:translateX(-50%);z-index:2147483647;background:rgba(18,42,107,.92);color:#fff;font:600 11px system-ui;padding:4px 10px;border-radius:99px;pointer-events:none';
+    document.body.appendChild(b);
+  }
 }
 function release() {
   if (!pinned) return;
   pinned = null;
   for (const [e, old] of frozen) for (const [k, v, pr] of old) v ? e.style.setProperty(k, v, pr) : e.style.removeProperty(k);
   frozen.clear();
+  document.getElementById('sg-ta')?.remove(); badge(false);
 }
 // On Instagram a reel opened from a DM can play as a full-screen overlay while the address stays /direct/t/...
 function bigVideo() {
@@ -99,20 +136,36 @@ setInterval(() => {
     if (bigVideo()) { if (!pinned) pinned = { id: 'overlay', url: location.href }; }
     else if (pinned && pinned.id === 'overlay') release();
   }
-  if (pinned) lockScrollers();
-}, 400);
+  if (pinned) { lockScrollers(); badge(true); }
+}, 300);
 const stop = e => {
   if (!pinned) return;
-  const dlg = e.target.closest?.('[role="dialog"]');
-  if (e.target.closest?.('textarea,input') || (dlg && !dlg.querySelector('video'))) return; // comments still scroll
+  if (e.target.closest?.('textarea,input') || isComments(e.target)) return; // comments still scroll
   e.preventDefault(); e.stopPropagation();
 };
 addEventListener('wheel', stop, { passive: false, capture: true });
 addEventListener('touchmove', stop, { passive: false, capture: true });
-addEventListener('keydown', e => { if (['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'j', 'k'].includes(e.key)) stop(e); }, true);
+addEventListener('keydown', e => { if (['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'j', 'k', ' ', 'End', 'Home'].includes(e.key) && !e.target.closest?.('textarea,input')) stop(e); }, true);
+// on a profile, hold everything at the top and don't let posts or reels open from it
+addEventListener('scroll', e => { if (pinned?.top) { if (e.target && e.target !== document) e.target.scrollTop = 0; else if (scrollY) scrollTo(0, 0); } }, true);
+addEventListener('click', e => {
+  if (!pinned?.top) return;
+  const a = e.target.closest?.('a[href]');
+  if (a && /\/(?:p|reel|reels|tv)\/[^/]+|\/video\/\d+|\/shorts\/|\/watch\?/.test(a.getAttribute('href'))) { e.preventDefault(); e.stopPropagation(); }
+}, true);
+// stop the page's own router from moving to another reel (only effective when the script runs in the page)
+for (const fn of ['pushState', 'replaceState']) {
+  const orig = history[fn];
+  history[fn] = function (s, t, u) {
+    try { if (pinned && u != null) { const m = SINGLE[host][0].exec(new URL(u, location.href).pathname); if (m && m[1] !== pinned.id) return; } } catch {}
+    return orig.apply(this, arguments);
+  };
+}
 function pin(t, p) {
   const [re, key] = SINGLE[host], m = re.exec(p);
+  if (!m && t.profileLock && PROFILE[host].test(p)) { if (!pinned || pinned.id !== 'profile') { release(); pinned = { id: 'profile', url: location.href, top: true }; } return false; }
   if (!m || !t[key]) { release(); return false; }
+  if (pinned && (pinned.id === 'overlay' || pinned.id === 'profile')) release();
   if (!pinned) pinned = { id: m[1], url: location.href };
   else if (pinned.id !== m[1]) { location.replace(pinned.url); return true; } // scrolled to a different video: put it back
   return false;

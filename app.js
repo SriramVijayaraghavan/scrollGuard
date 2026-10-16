@@ -3,7 +3,7 @@
 
 // ---------- constants ----------
 const KEY = 'scrollguard.v1';
-const BUILD = '2026-10-16.8';
+const BUILD = '2026-10-16.9';
 const APPS = {
   instagram: { name: 'Instagram', open: 'https://www.instagram.com/direct/inbox/', full: 'https://www.instagram.com/' },
   tiktok: { name: 'TikTok', open: 'https://www.tiktok.com/', full: 'https://www.tiktok.com/' },
@@ -26,11 +26,11 @@ const ACCENTS = [ // c = fills, lt/dt = text and icons on light/dark surfaces
   { c: '#cc5500', lt: '#b34700', dt: '#ff9347', n: 'Burnt orange' },
 ];
 const TARGETS = {
-  instagram: [['reelsTab', 'Reels tab and scrolling'], ['reelsFeed', 'Reels inside the feed'], ['explore', 'Explore page'], ['stories', 'Stories bar'], ['search', 'Search'], ['feed', 'Home feed posts'], ['dmsOnly', 'Everything except messages']],
-  tiktok: [['forYou', 'For You feed'], ['following', 'Following feed'], ['explore', 'Explore'], ['live', 'LIVE']],
-  youtube: [['shortsTab', 'Shorts tab and scrolling'], ['shortsShelf', 'Shorts inside the feed'], ['homeFeed', 'Home recommendations'], ['related', 'Related videos']],
+  instagram: [['reelsTab', 'Reels tab and scrolling'], ['reelsFeed', 'Reels inside the feed'], ['explore', 'Explore page'], ['stories', 'Stories bar'], ['search', 'Search'], ['feed', 'Home feed posts'], ['profileLock', 'Scrolling on profiles'], ['dmsOnly', 'Everything except messages']],
+  tiktok: [['forYou', 'For You feed'], ['following', 'Following feed'], ['explore', 'Explore'], ['live', 'LIVE'], ['profileLock', 'Scrolling on profiles']],
+  youtube: [['shortsTab', 'Shorts tab and scrolling'], ['shortsShelf', 'Shorts inside the feed'], ['homeFeed', 'Home recommendations'], ['related', 'Related videos'], ['profileLock', 'Scrolling on profiles']],
 };
-const defTargets = k => Object.fromEntries(TARGETS[k].map(([t]) => [t, (['reelsTab', 'reelsFeed', 'forYou', 'following', 'explore', 'shortsTab', 'shortsShelf'].includes(t) && !(k === 'instagram' && t === 'explore')) || (k === 'instagram' && t === 'dmsOnly')]));
+const defTargets = k => Object.fromEntries(TARGETS[k].map(([t]) => [t, (['reelsTab', 'reelsFeed', 'forYou', 'following', 'explore', 'shortsTab', 'shortsShelf', 'profileLock'].includes(t) && !(k === 'instagram' && t === 'explore')) || (k === 'instagram' && t === 'dmsOnly')]));
 const defApp = k => ({ on: true, whole: k === 'tiktok', mode: 'schedule', windows: [{ start: '09:00', end: '17:00', days: [0, 1, 2, 3, 4, 5, 6] }], blockAll: false, targets: defTargets(k) });
 const def = () => ({
   first: dayKey(), tab: 'home', account: null,
@@ -358,7 +358,7 @@ function vSheet() {
   const quick = st.active && !st.full && S.settings.lookup ? `<div class="section-t" style="margin:10px 4px 0">Quick access</div>
     <div class="group"><div class="pad fields"><input class="field" id="h-handle" placeholder="@handle" autocapitalize="none" autocorrect="off" spellcheck="false"></div>
     <div class="pad" style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><button class="btn" data-a="go" data-k="${k}">Profile</button><button class="btn" data-a="search" data-k="${k}">Search 10 min</button></div></div>
-    <p class="hint">Search opens the whole site for 10 minutes while feeds stay hidden.</p>` : '';
+    <p class="hint">Profiles stay in place so you can read a handle but not scroll. Search opens the site for 10 minutes with feeds hidden.</p>` : '';
   const unl = st.active && !st.full ? `<div class="group"><div class="row"><span class="lbl"><b>Unlock ${A.name}</b><span class="sub">${S.settings.requireTasks ? (can ? (gateTasks().length ? 'All tasks are done.' : 'No tasks are due.') : `Finish ${left} task${left === 1 ? '' : 's'} first.`) : 'Your tasks are not required.'}</span></span><button class="btn sm" data-a="unlock" data-k="${k}" ${can ? '' : 'disabled'}>Unlock</button></div></div>` : '';
   return `<div class="sheet" role="dialog" aria-modal="true"><div class="sheet-in">
     <div><button class="icon-btn" data-a="close" aria-label="Close">${ico('close')}</button></div>
