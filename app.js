@@ -543,6 +543,8 @@ function render() {
   $('#app').innerHTML = (VIEWS[S.tab] || vHome)() + (sheet ? vSheet() : '');
   document.body.classList.toggle('lock', !!sheet);
   if (S.tab === 'learn' && !sheet) initLearn();
+  const h1 = $('.top h1'); // shrink the title until it fits on one line
+  if (h1) for (let s = 28; s > 20 && h1.scrollWidth > h1.clientWidth; s--) h1.style.fontSize = s + 'px';
   scrollTo(0, y);
 }
 function showErr(id, msg) { const e = $('#' + id); if (e) e.textContent = msg; }
