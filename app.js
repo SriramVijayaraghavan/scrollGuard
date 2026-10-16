@@ -188,8 +188,25 @@ const $ = s => document.querySelector(s);
 const TABS = [['home', '🏠', 'Home'], ['block', '🛡️', 'Limits'], ['learn', '🧠', 'Learn'], ['tasks', '✅', 'Tasks'], ['social', '🏆', 'Rewards']];
 function render() {
   $('#nav').innerHTML = TABS.map(([k, i, l]) => `<button class="${S.tab === k ? 'on' : ''}" data-tab="${k}">${i}<br>${l}</button>`).join('');
-  $('#app').innerHTML = { home: vHome, block: vBlock, learn: vLearn, tasks: vTasks, social: vSocial }[S.tab]();
-  if (S.tab === 'learn') initLearn();
+  $('#app').innerHTML = gate ? vGate() : { home: vHome, block: vBlock, learn: vLearn, tasks: vTasks, social: vSocial }[S.tab]();
+  if (S.tab === 'learn' && !gate) initLearn();
+}
+// ---------- gate (opened by an iOS Shortcuts automation when a native app launches) ----------
+let gate = null;
+function readGate() {
+  const m = location.hash.match(/gate=([a-z]+)/); if (!m) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  if (APPS[m[1]]) gate = m[1];
+}
+const gateUrl = k => location.origin + location.pathname + '#gate=' + k;
+function vGate() {
+  const k = gate, A = APPS[k], st = status(k), left = S.tasks.filter(t => !t.done);
+  if (!st.active) return `<h1>${A.icon} ${A.name}</h1><div class="card" style="text-align:center"><div class="big">✅</div><p>${st.overridden ? 'Unlocked for now.' : 'Not locked right now.'}</p>
+    <div class="row" style="justify-content:center"><button class="p" data-gateopen="${k}">Open ${A.name}</button><button data-gateclose>Not now</button></div></div>`;
+  const can = !S.settings.requireTasks || allDone();
+  return `<h1>${A.icon} ${A.name}</h1><div class="card" style="text-align:center"><div class="big">🔒</div><p><b>${A.name} is locked</b><br><span class="mu">${st.full ? 'Blocked entirely.' : esc(st.reason || '')}</span></p>
+    ${S.settings.requireTasks && left.length ? `<div class="mu" style="text-align:left">Finish first:</div>${left.map(t => `<div class="task"><input type="checkbox" data-toggle="${t.id}"><span>${esc(t.text)}</span></div>`).join('')}` : ''}
+    <div class="row" style="justify-content:center">${st.full ? '' : `<button data-unlock="${k}" ${can ? '' : 'disabled'}>${S.settings.requireTasks ? (can ? 'Tasks done – unlock' : 'Finish tasks to unlock') : 'Unlock early'}</button>`}<button class="p" data-gateclose>Stay focused</button></div></div>`;
 }
 function vHome() {
   const cards = Object.keys(APPS).filter(k => S.apps[k].on).map(k => {
@@ -246,6 +263,8 @@ function vBlock() {
   <label class="row"><span>Hand off to Safari<br><small class="mu">For Home Screen web-app mode. Experimental.</small></span><input type="checkbox" ${S.settings.safariHandoff ? 'checked' : ''} data-s="safariHandoff"></label>
   <label class="row"><span>Track time spent scrolling</span><input type="checkbox" ${S.settings.track ? 'checked' : ''} data-s="track"></label>
   <div class="row"><span>Daily Instagram goal (min)</span><input type="number" style="width:90px" value="${S.settings.threshold}" data-s="threshold"></div></div>
+  <div class="card"><h2>App gate (for the real Instagram / TikTok / YouTube apps)</h2><div class="mu">A web app can't block an installed app, but it can stop you at the door. Copy a link, then in the Shortcuts app: Automation → New → App → pick the app → Is Opened → Open URL → paste the link → turn off "Ask Before Running". Opening the app then pops ScrollGuard's lock screen first.</div>
+  ${Object.keys(APPS).map(k => `<div class="row"><span>${APPS[k].icon} ${APPS[k].name}</span><button data-copygate="${k}">Copy link</button></div>`).join('')}</div>
   <div class="card"><h2>Blocker sync</h2><div class="mu">Launching from ScrollGuard sends your current limits to the Safari userscript automatically. For the desktop extension, copy the config and paste it into its popup.</div>
   <div class="row"><button data-export>Copy blocker config</button></div></div>`;
 }
@@ -349,6 +368,9 @@ document.addEventListener('click', e => {
   if (d.tab) S.tab = d.tab;
   else if (d.launch) { const st = status(d.launch); return launch(d.launch, !st.active); }
   else if (d.unlock) return unlock(d.unlock);
+  else if ('gateclose' in d) gate = null;
+  else if (d.gateopen) { gate = null; render(); return launch(d.gateopen, true); }
+  else if (d.copygate) { navigator.clipboard?.writeText(gateUrl(d.copygate)); t.textContent = 'Copied ✓'; return; }
   else if ('end' in d) return endSession();
   else if ('manual' in d) { addUsage(resolveApp($('#manApp').value), +$('#manMin').value || 0); }
   else if (d.go) { const v = $('#h-' + d.go).value.trim(); return v ? lookup(d.go, v) : alert('Type a handle first.'); }
@@ -388,7 +410,7 @@ function readLog() {
   if (APPS[m[1]]) addUsage(m[1], Math.min(+m[2], 240));
   S.pending = null; save();
 }
-readLog();
+readLog(); readGate();
 if (S.pending && Date.now() - S.pending.start > 3000 && !document.hidden) endSession();
-addEventListener('hashchange', () => { readLog(); render(); });
+addEventListener('hashchange', () => { readLog(); readGate(); render(); });
 render(); msFinish();
