@@ -56,6 +56,21 @@ const SINGLE = {
   youtube: [/^\/shorts\/([^/?]+)/, 'shortsTab'],
 };
 let pinned = null;
+// Freeze the page's own scroll areas around the video, so swiping can't reach the next one.
+function lockScrollers() {
+  document.querySelectorAll('video').forEach(v => {
+    for (let e = v.parentElement; e && e !== document.documentElement; e = e.parentElement) {
+      if (e.scrollHeight > e.clientHeight + 40) for (const [k, val] of [['overflow-y', 'hidden'], ['scroll-snap-type', 'none'], ['touch-action', 'none']]) e.style.setProperty(k, val, 'important');
+    }
+  });
+  for (const el of [document.documentElement, document.body]) if (el) { el.style.setProperty('overflow', 'hidden', 'important'); el.style.setProperty('touch-action', 'none', 'important'); }
+}
+function release() {
+  if (!pinned) return;
+  pinned = null;
+  for (const el of [document.documentElement, document.body]) if (el) { el.style.removeProperty('overflow'); el.style.removeProperty('touch-action'); }
+}
+setInterval(() => { if (pinned) lockScrollers(); }, 400);
 const stop = e => {
   if (!pinned || e.target.closest?.('[role="dialog"],textarea,input')) return; // comments still scroll
   e.preventDefault(); e.stopPropagation();
@@ -65,7 +80,7 @@ addEventListener('touchmove', stop, { passive: false, capture: true });
 addEventListener('keydown', e => { if (['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'j', 'k'].includes(e.key)) stop(e); }, true);
 function pin(t, p) {
   const [re, key] = SINGLE[host], m = re.exec(p);
-  if (!m || !t[key]) { pinned = null; return false; }
+  if (!m || !t[key]) { release(); return false; }
   if (!pinned) pinned = { id: m[1], url: location.href };
   else if (pinned.id !== m[1]) { location.replace(pinned.url); return true; } // scrolled to a different video: put it back
   return false;
@@ -74,7 +89,7 @@ function apply(a) {
   if (!a) return;
   const lk = locked(a);
   document.getElementById(STYLE_ID)?.remove();
-  if (!lk) { pinned = null; return; }
+  if (!lk) { release(); return; }
   const p = location.pathname;
   if (lk === 'all') return location.replace('data:text/html,<body style="font:20px system-ui;text-align:center;padding:30vh 20px;background:%230f1115;color:white">🛡️ Blocked by ScrollGuard');
   const t = a.targets || {}; let css = '';
