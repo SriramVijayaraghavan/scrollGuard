@@ -114,6 +114,15 @@ nav button.on{color:var(--accent-t)}
 .sheet .lead b{color:var(--tx)}
 .mark{display:grid;place-items:center;padding:10px 0 4px}
 
+.pause{z-index:60}
+.pause-in{min-height:calc(100vh - 60px);justify-content:center;text-align:center}
+.ring{position:relative;width:136px;height:136px;margin:4px auto}
+.ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+.rt{fill:none;stroke:var(--fill);stroke-width:9}
+.rp{fill:none;stroke:var(--accent-t);stroke-width:9;stroke-linecap:round;stroke-dasharray:326.7;transition:stroke-dashoffset .3s linear}
+.ring span{position:absolute;inset:0;display:grid;place-items:center;font-size:42px;font-weight:700;font-variant-numeric:tabular-nums}
+@media (prefers-reduced-motion:reduce){.rp{transition:none}}
+
 /* welcome */
 .welcome{min-height:100vh;display:flex;flex-direction:column;justify-content:center;gap:18px;max-width:400px;margin:0 auto;padding:24px 0}
 .welcome h1{font-size:32px;line-height:1.12;letter-spacing:-.02em;text-align:center}
@@ -170,5 +179,5 @@ nav button.on{color:var(--accent-t)}
 </defs></svg>
 <main id="app" class="page"></main>
 <nav id="nav" hidden></nav>
-<script src="app.js?v=2026-10-16.5"></script>
+<script src="app.js?v=2026-10-16.6"></script>
 </body></html>

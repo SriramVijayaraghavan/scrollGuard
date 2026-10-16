@@ -3,7 +3,7 @@
 
 // ---------- constants ----------
 const KEY = 'scrollguard.v1';
-const BUILD = '2026-10-16.5';
+const BUILD = '2026-10-16.6';
 const APPS = {
   instagram: { name: 'Instagram', open: 'https://www.instagram.com/direct/inbox/', full: 'https://www.instagram.com/' },
   tiktok: { name: 'TikTok', open: 'https://www.tiktok.com/', full: 'https://www.tiktok.com/' },
@@ -35,7 +35,7 @@ const defApp = k => ({ on: true, whole: k === 'tiktok', mode: 'schedule', start:
 const def = () => ({
   first: dayKey(), tab: 'home', account: null,
   ui: { theme: 'auto', accent: '#122a6b', v: 3 },
-  settings: { track: true, threshold: 60, requireTasks: true, lookup: true, safariHandoff: false },
+  settings: { track: true, threshold: 60, requireTasks: true, lookup: true, safariHandoff: false, pause: true, pauseSecs: 25 },
   apps: Object.fromEntries(KEYS.map(k => [k, defApp(k)])),
   learn: { on: false, topics: [], ytOn: false, ytKey: '', src: { wiki: true, hn: true } },
   tasks: [], override: {}, lookup: {}, usage: {}, pending: null,
@@ -135,9 +135,29 @@ function lookup(app, handle) {
     if (!/^[A-Za-z0-9._-]{1,60}$/.test(h)) return alert('Enter a handle like name_here (letters, numbers, . _ -).');
     url = profileUrl[app](h);
   }
-  S.lookup[app] = Date.now() + 10 * 60000; save();
-  sheet = null; launch(app, true, url);
+  openNow({ k: app, full: true, url, lk: true }); // quick lookups skip the countdown
 }
+// Opening a social app passes through a countdown screen first (quick lookups don't).
+let pausing = null;
+function requestOpen(k, full, url, lk) {
+  const secs = S.settings.pause ? (S.settings.pauseSecs || 25) : 0;
+  if (!secs) return openNow({ k, full, url, lk });
+  pausing = { k, full, url, lk, secs, end: Date.now() + secs * 1000 }; render();
+}
+function openNow(p) {
+  pausing = null; sheet = null;
+  if (p.lk) S.lookup[p.k] = Date.now() + 10 * 60000; // the 10 minutes start now, not during the countdown
+  save(); launch(p.k, p.full, p.url);
+}
+function pauseLeft() { return pausing ? Math.max(0, Math.ceil((pausing.end - Date.now()) / 1000)) : 0; }
+function tickPause() {
+  if (!pausing) return;
+  const left = pauseLeft(), s = $('#pSecs'), r = $('#pRing'), b = $('#pGo');
+  if (s) s.textContent = left;
+  if (r) r.style.strokeDashoffset = (326.7 * (1 - left / pausing.secs)).toFixed(1);
+  if (b) { b.disabled = left > 0; b.textContent = left > 0 ? `Continue in ${left}s` : `Continue to ${APPS[pausing.k].name}`; }
+}
+setInterval(tickPause, 250);
 function endSession() {
   const p = S.pending; if (!p) return;
   addUsage(p.app, Math.min(180, Math.max(0, (Date.now() - p.start) / 60000)));
@@ -339,6 +359,19 @@ function vSheet() {
     ${primary}${quick}${unl}</div></div>`;
 }
 
+// ---------- pause screen ----------
+function vPause() {
+  const A = APPS[pausing.k];
+  return `<div class="sheet pause" role="dialog" aria-modal="true"><div class="sheet-in pause-in">
+    <div class="mark">${logo(pausing.k, 72)}</div>
+    <h1>Are you sure you want to go to ${A.name}?</h1>
+    <div class="ring"><svg viewBox="0 0 120 120" aria-hidden="true"><circle class="rt" cx="60" cy="60" r="52"/><circle class="rp" id="pRing" cx="60" cy="60" r="52" style="stroke-dashoffset:${(326.7 * (1 - pauseLeft() / pausing.secs)).toFixed(1)}"/></svg><span id="pSecs">${pauseLeft()}</span></div>
+    <p class="lead">Take a breath. Is this how you want to spend the next few minutes?</p>
+    <button class="btn primary block" data-a="pauseback">Go back</button>
+    <button class="btn block" id="pGo" data-a="pausego" ${pauseLeft() > 0 ? 'disabled' : ''}>${pauseLeft() > 0 ? `Continue in ${pauseLeft()}s` : `Continue to ${A.name}`}</button>
+  </div></div>`;
+}
+
 // ---------- limits ----------
 function vLimits() {
   const one = k => {
@@ -363,6 +396,8 @@ function vLimits() {
   <div class="group">
     ${trow('Tasks unlock apps', 'Off lets you unlock early with a confirm.', sw('data-s="requireTasks"', S.settings.requireTasks))}
     ${trow('Quick access', 'Profile lookup and 10 minute search.', sw('data-s="lookup"', S.settings.lookup))}
+    ${trow('Pause before opening', 'A countdown asks if you really want to go.', sw('data-s="pause"', S.settings.pause))}
+    ${S.settings.pause ? `<div class="pad">${seg('pauseSecs', [['15', '15 sec'], ['25', '25 sec'], ['45', '45 sec']], String(S.settings.pauseSecs))}</div>` : ''}
     ${trow('Track screen time', '', sw('data-s="track"', S.settings.track))}
     ${trow('Hand off to Safari', 'For Home Screen web-app mode. Experimental.', sw('data-s="safariHandoff"', S.settings.safariHandoff))}
     <div class="row"><span class="lbl"><b>Daily Instagram goal</b><span class="sub">Minutes. Shown on your Home note.</span></span><input class="field" type="number" inputmode="numeric" style="width:84px;text-align:center" value="${S.settings.threshold}" data-s="threshold"></div>
@@ -532,8 +567,8 @@ function render() {
   if (!S.account) { nav.hidden = true; $('#app').innerHTML = vWelcome(); return; }
   nav.hidden = false;
   nav.innerHTML = TABS.map(([k, i, l]) => `<button class="${S.tab === k ? 'on' : ''}" data-a="tab" data-v="${k}" aria-label="${l}">${ico(i, 24)}${l}</button>`).join('');
-  $('#app').innerHTML = (VIEWS[S.tab] || vHome)() + (sheet ? vSheet() : '');
-  document.body.classList.toggle('lock', !!sheet);
+  $('#app').innerHTML = (VIEWS[S.tab] || vHome)() + (sheet ? vSheet() : '') + (pausing ? vPause() : '');
+  document.body.classList.toggle('lock', !!(sheet || pausing));
   if (S.tab === 'learn' && !sheet) initLearn();
   const h1 = $('.top h1'); // shrink the title until it fits on one line
   if (h1) for (let s = 28; s > 20 && h1.scrollWidth > h1.clientWidth; s--) h1.style.fontSize = s + 'px';
@@ -560,11 +595,13 @@ document.addEventListener('click', async e => {
     case 'tab': S.tab = v; sheet = null; scrollTo(0, 0); break;
     case 'sheet': sheet = k; break;
     case 'close': sheet = null; break;
-    case 'openapp': sheet = null; render(); return launch(k, el.dataset.full === '1');
+    case 'openapp': return requestOpen(k, el.dataset.full === '1');
+    case 'pauseback': pausing = null; sheet = null; break;
+    case 'pausego': if (pausing && Date.now() >= pausing.end) return openNow(pausing); return;
     case 'go': { const h = $('#h-handle').value.trim(); return h ? lookup(k, h) : alert('Type a handle first.'); }
     case 'search': return lookup(k);
     case 'unlock': return unlock(k);
-    case 'seg': { const [ak, f] = k.split('.'); S.apps[ak][f] = v; break; }
+    case 'seg': { const [ak, f] = k.split('.'); if (f) S.apps[ak][f] = v; else S.settings[ak] = +v; break; }
     case 'range': histRange = v; break;
     case 'theme': S.ui.theme = v; break;
     case 'accent': S.ui.accent = v; break;
