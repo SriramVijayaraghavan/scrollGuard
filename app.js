@@ -15,10 +15,11 @@ const ALLOW = { instagram: { phrase: 'open messages', btn: 'Open messages' }, yo
 const profileUrl = { instagram: h => `https://www.instagram.com/${h}/`, tiktok: h => `https://www.tiktok.com/@${h}`, youtube: h => `https://m.youtube.com/@${h}` };
 const IS_STANDALONE = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
 const DAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const DAYNAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const GREETS = ['Welcome', 'Hello', 'Greetings', 'Salutations', "What's up", 'Hey there', 'Hi', 'Howdy', 'Good day', 'Welcome back'];
 const ACCENTS = [ // c = fills, lt/dt = text and icons on light/dark surfaces
-  { c: '#1c3d99', lt: '#1c3d99', dt: '#7ea2ff', n: 'Navy' },
+  { c: '#122a6b', lt: '#122a6b', dt: '#7ea2ff', n: 'Navy' },
   { c: '#12a67c', lt: '#0e8a66', dt: '#2fd0a2', n: 'Emerald' },
   { c: '#d6303d', lt: '#c42631', dt: '#ff7580', n: 'Red' },
   { c: '#cc5500', lt: '#b34700', dt: '#ff9347', n: 'Burnt orange' },
@@ -32,7 +33,7 @@ const defTargets = k => Object.fromEntries(TARGETS[k].map(([t]) => [t, (['reelsT
 const defApp = k => ({ on: true, whole: k === 'tiktok', mode: 'schedule', start: '09:00', end: '17:00', days: [0, 1, 2, 3, 4, 5, 6], blockAll: false, targets: defTargets(k) });
 const def = () => ({
   first: dayKey(), tab: 'home', account: null,
-  ui: { theme: 'auto', accent: '#1c3d99', v: 2 },
+  ui: { theme: 'auto', accent: '#122a6b', v: 3 },
   settings: { track: true, threshold: 60, requireTasks: true, lookup: true, safariHandoff: false },
   apps: Object.fromEntries(KEYS.map(k => [k, defApp(k)])),
   learn: { on: false, topics: [], ytOn: false, ytKey: '', src: { wiki: true, hn: true } },
@@ -50,7 +51,7 @@ function load() {
     o.settings = Object.assign(d.settings, o.settings);
     o.ui = Object.assign(d.ui, o.ui);
     const s = Object.assign(d, o);
-    if (s.ui.v !== 2) { s.ui.accent = '#1c3d99'; s.ui.v = 2; } // navy is the new standard
+    if (s.ui.v !== 3) { s.ui.accent = '#122a6b'; s.ui.v = 3; } // deep navy is the standard
     if (s.account) s.account = { name: s.account.name };      // name only
     s.tab = 'home';
     return s;
@@ -94,7 +95,18 @@ function allowed(k, st) {
   if (st.whole || !ALLOW[k]) return { phrase: 'look up profiles', btn: null };
   return ALLOW[k];
 }
-const allDone = () => S.tasks.length > 0 && S.tasks.every(t => t.done);
+// Tasks without a date count as due today. Tasks due on a later day don't block unlocking.
+const dueOf = t => t.due || dayKey();
+const gateTasks = () => S.tasks.filter(t => dueOf(t) <= dayKey());
+const allDone = () => { const g = gateTasks(); return g.length > 0 && g.every(t => t.done); };
+const dueMs = t => new Date(dueOf(t) + 'T' + (t.dueTime || '23:59') + ':00').getTime();
+function dueLabel(t) {
+  const d = dueOf(t), now = new Date(), tm = new Date(now); tm.setDate(tm.getDate() + 1);
+  const [y, m, dd] = d.split('-').map(Number), dt = new Date(y, m - 1, dd);
+  const day = d === dayKey(now) ? 'Today' : d === dayKey(tm) ? 'Tomorrow' : `${DAYNAMES[dt.getDay()]}, ${MONTHS[dt.getMonth()]} ${dd}`;
+  return day + (t.dueTime ? ', ' + fmtTime(t.dueTime) : '');
+}
+const overdue = t => !t.done && dueMs(t) < Date.now();
 function unlock(app) {
   if (S.settings.requireTasks ? !allDone() : !confirm('Unlock early? Your tasks are not required.')) return;
   const st = status(app);
@@ -248,7 +260,7 @@ async function msSync() {
     const lists = (await graph('/me/todo/lists')).value;
     const dl = lists.find(l => l.wellknownListName === 'defaultList') || lists[0];
     const ts = (await graph(`/me/todo/lists/${dl.id}/tasks?$top=100`)).value;
-    S.tasks = S.tasks.filter(t => !t.ms).concat(ts.map(t => ({ id: 'ms' + t.id, text: t.title, done: t.status === 'completed', ms: { list: dl.id, id: t.id } })));
+    S.tasks = S.tasks.filter(t => !t.ms).concat(ts.map(t => ({ id: 'ms' + t.id, text: t.title, done: t.status === 'completed', due: t.dueDateTime ? t.dueDateTime.dateTime.slice(0, 10) : undefined, ms: { list: dl.id, id: t.id } })));
     save(); render();
   } catch (e) { alert('Sync failed: ' + e.message); }
 }
@@ -308,7 +320,7 @@ function vHome() {
 // ---------- app sheet (full page) ----------
 function vSheet() {
   const k = sheet, A = APPS[k], st = status(k), al = allowed(k, st);
-  const left = S.tasks.filter(t => !t.done).length, can = !S.settings.requireTasks || allDone();
+  const left = gateTasks().filter(t => !t.done).length, can = !S.settings.requireTasks || allDone();
   let lead, primary = '';
   if (st.full) lead = `${A.name} is blocked completely. Turn that off in Limits to open it.`;
   else if (!st.active) { lead = st.overridden ? 'It is unlocked for now.' : 'There are no restrictions right now.'; primary = `<button class="btn primary block" data-a="openapp" data-k="${k}" data-full="1">Open ${A.name}</button>`; }
@@ -365,13 +377,16 @@ function vLimits() {
 
 // ---------- tasks ----------
 function vTasks() {
-  const ms = S.ms, left = S.tasks.filter(t => !t.done).length;
+  const ms = S.ms, today = gateTasks().filter(t => !t.done).length, later = S.tasks.filter(t => dueOf(t) > dayKey() && !t.done).length;
+  const sorted = [...S.tasks].sort((x, y) => (x.done - y.done) || (dueMs(x) - dueMs(y)));
   return `${head('Tasks')}
-  <p class="hint" style="padding-top:0">Finish every task to unlock your restricted apps for the rest of the lock window.</p>
+  <p class="hint" style="padding-top:0">Finish every task due today or overdue to unlock your restricted apps. Tasks due later don't count yet.</p>
   <div class="group">
-    <div class="pad" style="display:flex;gap:10px"><input class="field" id="newTask" placeholder="Add a task" enterkeyhint="done"><button class="btn primary" data-a="addtask">Add</button></div>
-    ${S.tasks.map(t => `<div class="task ${t.done ? 'done' : ''}"><input type="checkbox" class="ck" ${t.done ? 'checked' : ''} data-toggle="${t.id}" aria-label="Done"><span class="t">${esc(t.text)}${t.ms ? '<span class="sub">Microsoft To Do</span>' : ''}</span><button class="x" data-a="deltask" data-v="${t.id}" aria-label="Delete">${ico('trash', 20)}</button></div>`).join('') || '<div class="pad sub">No tasks yet.</div>'}
-    <div class="row"><span class="sub" style="margin:0">${S.tasks.length ? (left ? `${left} remaining` : 'All done') : ''}</span><button class="link" data-a="cleartasks">Clear completed</button></div>
+    <div class="pad fields"><input class="field" id="newTask" placeholder="Task" enterkeyhint="done">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><label class="sub" style="margin:0">Due date<input class="field" id="newDue" type="date" value="${dayKey()}" style="margin-top:4px;width:100%"></label><label class="sub" style="margin:0">Due time (optional)<input class="field" id="newTime" type="time" style="margin-top:4px;width:100%"></label></div>
+      <div class="err" id="msg-task"></div><button class="btn primary" data-a="addtask">Add task</button></div>
+    ${sorted.map(t => `<div class="task ${t.done ? 'done' : ''}"><input type="checkbox" class="ck" ${t.done ? 'checked' : ''} data-toggle="${t.id}" aria-label="Done"><span class="t">${esc(t.text)}<span class="sub" style="${overdue(t) ? 'color:var(--danger)' : ''}">${overdue(t) ? 'Overdue, ' : 'Due '}${dueLabel(t)}${t.ms ? ', Microsoft To Do' : ''}</span></span><button class="x" data-a="deltask" data-v="${t.id}" aria-label="Delete">${ico('trash', 20)}</button></div>`).join('') || '<div class="pad sub">No tasks yet.</div>'}
+    <div class="row"><span class="sub" style="margin:0">${S.tasks.length ? `${today} due now${later ? `, ${later} later` : ''}` : ''}</span><button class="link" data-a="cleartasks">Clear completed</button></div>
   </div>
   <div class="section-t">Microsoft To Do</div>
   <div class="group"><div class="pad fields"><input class="field" placeholder="Azure app Client ID" value="${esc(ms.clientId)}" data-ms="clientId" autocapitalize="none" autocorrect="off" spellcheck="false">
@@ -552,10 +567,15 @@ document.addEventListener('click', async e => {
     case 'day': { const [ak, i] = k.split('.'), d = S.apps[ak].days, n = +i; d.includes(n) ? d.splice(d.indexOf(n), 1) : d.push(n); break; }
     case 'end': return endSession();
     case 'manual': addUsage($('#manApp').value, +$('#manMin').value || 0); break;
-    case 'addtask': { const t = $('#newTask').value.trim(); if (t) S.tasks.push({ id: 't' + Date.now(), text: t, done: false }); break; }
+    case 'addtask': {
+      const t = $('#newTask').value.trim(), due = $('#newDue').value, time = $('#newTime').value;
+      if (!t) return showErr('msg-task', 'Enter a task.');
+      if (!due) return showErr('msg-task', 'Pick a due date.');
+      S.tasks.push({ id: 't' + Date.now(), text: t, due, dueTime: time || undefined, done: false }); break;
+    }
     case 'deltask': S.tasks = S.tasks.filter(x => x.id !== v); break;
     case 'cleartasks': S.tasks = S.tasks.filter(x => !x.done); break;
-    case 'import': $('#paste').value.split('\n').map(s => s.replace(/^[\s\-\[\]xX*]+/, '').trim()).filter(Boolean).forEach((t, i) => S.tasks.push({ id: 't' + Date.now() + i, text: t, done: false })); break;
+    case 'import': $('#paste').value.split('\n').map(s => s.replace(/^[\s\-\[\]xX*]+/, '').trim()).filter(Boolean).forEach((t, i) => S.tasks.push({ id: 't' + Date.now() + i, text: t, due: dayKey(), done: false })); break;
     case 'mslogin': return msLogin();
     case 'mssync': return msSync();
     case 'exportcfg': return copy(exportConfig(), el);
