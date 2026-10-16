@@ -9,6 +9,8 @@
 // ==/UserScript==
 // Blocks Instagram / TikTok web sections according to ScrollGuard config.
 // NOTE: both sites change their markup often; selectors below are best-effort and may need updates.
+// Blocks Instagram / TikTok web sections according to ScrollGuard config.
+// NOTE: both sites change their markup often; selectors below are best-effort and may need updates.
 const host = location.hostname.includes('instagram') ? 'instagram' : location.hostname.includes('tiktok') ? 'tiktok' : 'youtube';
 const toMin = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
 function locked(a, now = new Date()) {
@@ -47,17 +49,39 @@ const RULES = {
 };
 const HOME = { instagram: '/direct/inbox/', tiktok: '/messages', youtube: '/feed/subscriptions' };
 const STYLE_ID = 'sg-style';
+// A video a friend sent opens on a single-video page. Pin the viewer to that one video.
+const SINGLE = {
+  instagram: [/^\/(?:reel|reels)\/(?!audio)([^/]+)/, 'reelsTab'],
+  tiktok: [/^\/@[^/]+\/video\/(\d+)/, 'forYou'],
+  youtube: [/^\/shorts\/([^/?]+)/, 'shortsTab'],
+};
+let pinned = null;
+const stop = e => {
+  if (!pinned || e.target.closest?.('[role="dialog"],textarea,input')) return; // comments still scroll
+  e.preventDefault(); e.stopPropagation();
+};
+addEventListener('wheel', stop, { passive: false, capture: true });
+addEventListener('touchmove', stop, { passive: false, capture: true });
+addEventListener('keydown', e => { if (['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'j', 'k'].includes(e.key)) stop(e); }, true);
+function pin(t, p) {
+  const [re, key] = SINGLE[host], m = re.exec(p);
+  if (!m || !t[key]) { pinned = null; return false; }
+  if (!pinned) pinned = { id: m[1], url: location.href };
+  else if (pinned.id !== m[1]) { location.replace(pinned.url); return true; } // scrolled to a different video: put it back
+  return false;
+}
 function apply(a) {
   if (!a) return;
   const lk = locked(a);
   document.getElementById(STYLE_ID)?.remove();
-  if (!lk) return;
+  if (!lk) { pinned = null; return; }
   const p = location.pathname;
   if (lk === 'all') return location.replace('data:text/html,<body style="font:20px system-ui;text-align:center;padding:30vh 20px;background:%230f1115;color:white">🛡️ Blocked by ScrollGuard');
   const t = a.targets || {}; let css = '';
   const looking = a.lookupUntil && a.lookupUntil > Date.now();
   const dmsOnly = host === 'instagram' && t.dmsOnly && !looking;
-  if (dmsOnly && !p.startsWith('/direct')) return location.replace(HOME[host]);
+  const dmOk = p.startsWith('/direct') || p.startsWith('/accounts') || /^\/(reel|p|tv)\/[^/]+/.test(p) || /^\/reels\/(?!audio)[^/]+/.test(p);
+  if (dmsOnly && !dmOk) return location.replace(HOME[host]);
   for (const [key, [sels, redirects]] of Object.entries(RULES[host])) {
     if (!t[key] || (looking && ['search', 'explore'].includes(key))) continue;
     css += sels.map(s => s + '{display:none!important}').join('');
@@ -65,6 +89,7 @@ function apply(a) {
   }
   // Reels opened from a DM (/reel/<id>) stay viewable, but hide the "next video" controls.
   css += 'button[data-e2e="arrow-right"],button[data-e2e="arrow-left"],[data-e2e="video-switch"]{display:none!important}';
+  if (pin(t, p)) return;
   const st = document.createElement('style'); st.id = STYLE_ID; st.textContent = css;
   (document.head || document.documentElement).appendChild(st);
 }

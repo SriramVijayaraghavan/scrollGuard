@@ -13,7 +13,7 @@ const TARGETS = {
   tiktok: [['forYou', 'For You feed'], ['following', 'Following feed'], ['explore', 'Explore / Discover'], ['live', 'LIVE']],
   youtube: [['shortsTab', 'Shorts tab / scrolling'], ['shortsShelf', 'Shorts inside the feed'], ['homeFeed', 'Home recommendations'], ['related', 'Related videos']],
 };
-const defTargets = k => Object.fromEntries(TARGETS[k].map(([t]) => [t, ['reelsTab', 'reelsFeed', 'forYou', 'following', 'explore', 'shortsTab', 'shortsShelf'].includes(t) && !(k === 'instagram' && t === 'explore')]));
+const defTargets = k => Object.fromEntries(TARGETS[k].map(([t]) => [t, (['reelsTab', 'reelsFeed', 'forYou', 'following', 'explore', 'shortsTab', 'shortsShelf'].includes(t) && !(k === 'instagram' && t === 'explore')) || (k === 'instagram' && t === 'dmsOnly')]));
 const defApp = k => ({ on: true, mode: 'schedule', start: '09:00', end: '17:00', days: [0, 1, 2, 3, 4, 5, 6], blockAll: false, targets: defTargets(k) });
 const def = () => ({
   first: dayKey(), tab: 'home',
