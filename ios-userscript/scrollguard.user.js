@@ -12,8 +12,23 @@
 // Blocks Instagram / TikTok web sections according to ScrollGuard config.
 // NOTE: both sites change their markup often; selectors below are best-effort and may need updates.
 const host = location.hostname.includes('instagram') ? 'instagram' : location.hostname.includes('tiktok') ? 'tiktok' : 'youtube';
-const toMin = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+// whole-app mode blocks the entire site during the lock window, except during a quick-lookup pass
 function locked(a, now = new Date()) {
+  if (a.blockAll) return 'all';
+  const l = windowLocked(a, now);
+  return l && a.whole && !(a.lookupUntil > now.getTime()) ? 'all' : l;
+}
+let shown = false;
+function blockPage(back) {
+  if (shown) return; shown = true;
+  const go = () => {
+    try { window.stop(); } catch {}
+    document.documentElement.innerHTML = '<head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#0f1115;color:#fff;font:20px system-ui;text-align:center;padding:30vh 24px 0">🛡️ Blocked by ScrollGuard' + (back ? '<p><a style="color:#9d92ff;font-size:17px" href="' + back + '">Back to ScrollGuard</a></p>' : '') + '</body>';
+  };
+  setTimeout(go, 0);
+}
+const toMin = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+function windowLocked(a, now = new Date()) {
   if (a.blockAll) return 'all';
   if (a.mode === 'off') return false;
   if (a.unlockUntil && a.unlockUntil > now.getTime()) return false;
@@ -114,7 +129,7 @@ function apply(a) {
   document.getElementById(STYLE_ID)?.remove();
   if (!lk) { lastT = null; release(); return; }
   const p = location.pathname;
-  if (lk === 'all') return location.replace('data:text/html,<body style="font:20px system-ui;text-align:center;padding:30vh 20px;background:%230f1115;color:white">🛡️ Blocked by ScrollGuard');
+  if (lk === 'all') return blockPage(a.back);
   const t = a.targets || {}; lastT = t; let css = '';
   const looking = a.lookupUntil && a.lookupUntil > Date.now();
   const dmsOnly = host === 'instagram' && t.dmsOnly && !looking;

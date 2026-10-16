@@ -15,7 +15,7 @@ const TARGETS = {
   youtube: [['shortsTab', 'Shorts tab / scrolling'], ['shortsShelf', 'Shorts inside the feed'], ['homeFeed', 'Home recommendations'], ['related', 'Related videos']],
 };
 const defTargets = k => Object.fromEntries(TARGETS[k].map(([t]) => [t, (['reelsTab', 'reelsFeed', 'forYou', 'following', 'explore', 'shortsTab', 'shortsShelf'].includes(t) && !(k === 'instagram' && t === 'explore')) || (k === 'instagram' && t === 'dmsOnly')]));
-const defApp = k => ({ on: true, mode: 'schedule', start: '09:00', end: '17:00', days: [0, 1, 2, 3, 4, 5, 6], blockAll: false, targets: defTargets(k) });
+const defApp = k => ({ on: true, whole: k === 'tiktok', mode: 'schedule', start: '09:00', end: '17:00', days: [0, 1, 2, 3, 4, 5, 6], blockAll: false, targets: defTargets(k) });
 const def = () => ({
   first: dayKey(), tab: 'home',
   settings: { track: true, threshold: 60, requireTasks: true, lookup: true, safariHandoff: false },
@@ -62,7 +62,7 @@ function status(app, now = new Date()) {
   }
   if (!inWin) return { active: false };
   if (ov && ov > now.getTime()) return { active: false, overridden: true };
-  return { active: true, reason: a.mode === 'always' ? 'always on' : `${a.start}–${a.end}`, minsLeft };
+  return { active: true, whole: !!a.whole, reason: a.mode === 'always' ? 'always on' : `${a.start}–${a.end}`, minsLeft };
 }
 const allDone = () => S.tasks.length > 0 && S.tasks.every(t => t.done);
 function unlock(app) {
@@ -194,12 +194,12 @@ function render() {
 function vHome() {
   const cards = Object.keys(APPS).filter(k => S.apps[k].on).map(k => {
     const st = status(k), a = APPS[k];
-    const tag = st.active ? `<span class="tag on">${st.full ? 'Blocked' : 'Feed locked'}</span>` : `<span class="tag free">${st.overridden ? 'Unlocked' : 'Free'}</span>`;
+    const tag = st.active ? `<span class="tag on">${st.full ? 'Blocked' : st.whole ? 'App blocked' : 'Feed locked'}</span>` : `<span class="tag free">${st.overridden ? 'Unlocked' : 'Free'}</span>`;
     const canUnlock = st.active && !st.full;
     const ul = S.settings.requireTasks ? (allDone() ? 'All tasks done – unlock' : 'Finish tasks to unlock') : 'Unlock early';
     return `<div class="card"><div class="row"><b>${a.icon} ${a.name}</b>${tag}</div>
-      <div class="mu">${st.active ? (st.full ? 'Blocked until you turn it off in Limits.' : `Locked (${st.reason}). Opening goes to messages${k === 'youtube' ? '/subscriptions' : ''} only.`) : 'No restriction right now.'}</div>
-      <div class="row"><button class="p" ${st.full ? 'disabled' : ''} data-launch="${k}">Open ${st.active ? (k === 'youtube' ? 'subscriptions' : 'messages') : a.name}</button>
+      <div class="mu">${st.active ? (st.full ? 'Blocked until you turn it off in Limits.' : st.whole ? `Whole app blocked (${st.reason}). Finish your tasks to unlock.` : `Locked (${st.reason}). Opening goes to messages${k === 'youtube' ? '/subscriptions' : ''} only.`) : 'No restriction right now.'}</div>
+      <div class="row"><button class="p" ${st.full || st.whole ? 'disabled' : ''} data-launch="${k}">Open ${st.whole ? a.name : st.active ? (k === 'youtube' ? 'subscriptions' : 'messages') : a.name}</button>
       ${canUnlock ? `<button data-unlock="${k}" ${S.settings.requireTasks && !allDone() ? 'disabled' : ''}>${ul}</button>` : ''}</div>
       ${canUnlock && S.settings.lookup ? `<div class="row"><input id="h-${k}" placeholder="🔎 @handle to look up" style="flex:1;min-width:140px"><button data-go="${k}">Profile</button><button data-lookup="${k}">Search 10 min</button></div>` : ''}</div>`;
   }).join('') || '<div class="card mu">No services enabled. Turn them on in Limits.</div>';
@@ -236,6 +236,7 @@ function vBlock() {
     <div class="row days">${DAYS.map((d, i) => `<button class="${a.days.includes(i) ? 'on' : ''}" data-day="${k}.${i}">${d}</button>`).join('')}</div>
     <div class="mu">Overnight works too (e.g. 22:00 → 07:00).</div>` : ''}
     ${a.mode !== 'off' ? `<div class="mu" style="margin-top:8px">What to block while locked:</div>${TARGETS[k].map(([t, l]) => `<label class="row"><span>${l}</span><input type="checkbox" ${a.targets[t] ? 'checked' : ''} data-t="${k}.${t}"></label>`).join('')}` : ''}
+    ${a.mode !== 'off' ? `<label class="row"><span>Block the whole app while locked<br><small class="mu">Instead of hiding feeds. Quick lookup still works.</small></span><input type="checkbox" ${a.whole ? 'checked' : ''} data-f="${k}.whole"></label>` : ''}
     <div class="row"><span>Block ${A.name} completely</span><input type="checkbox" ${a.blockAll ? 'checked' : ''} data-f="${k}.blockAll"></div></div>`;
   };
   return `<h1>Limits</h1>${Object.keys(APPS).map(one).join('')}
@@ -274,7 +275,7 @@ function vSocial() {
 // ---------- extension config ----------
 function exportConfig() {
   const apps = {};
-  for (const k of Object.keys(APPS)) { const a = S.apps[k]; apps[k] = { mode: a.on ? a.mode : 'off', start: a.start, end: a.end, days: a.days, blockAll: a.blockAll, targets: a.targets, unlockUntil: S.override[k] || 0, lookupUntil: S.lookup[k] || 0, track: S.settings.track, back: IS_STANDALONE ? '' : location.origin + location.pathname }; }
+  for (const k of Object.keys(APPS)) { const a = S.apps[k]; apps[k] = { mode: a.on ? a.mode : 'off', start: a.start, end: a.end, days: a.days, blockAll: a.blockAll, whole: !!a.whole, targets: a.targets, unlockUntil: S.override[k] || 0, lookupUntil: S.lookup[k] || 0, track: S.settings.track, back: IS_STANDALONE ? '' : location.origin + location.pathname }; }
   return JSON.stringify({ v: 1, apps });
 }
 
