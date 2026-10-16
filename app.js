@@ -3,7 +3,7 @@
 const KEY = 'scrollguard.v1';
 const APPS = {
   instagram: { name: 'Instagram', icon: '📸', open: 'https://www.instagram.com/direct/inbox/', full: 'https://www.instagram.com/' },
-  tiktok: { name: 'TikTok', icon: '🎵', open: 'https://www.tiktok.com/messages', full: 'https://www.tiktok.com/' },
+  tiktok: { name: 'TikTok', icon: '🎵', open: 'https://www.tiktok.com/', full: 'https://www.tiktok.com/' },
   youtube: { name: 'YouTube', icon: '▶️', open: 'https://m.youtube.com/feed/subscriptions', full: 'https://m.youtube.com/' },
 };
 const profileUrl = { instagram: h => `https://www.instagram.com/${h}/`, tiktok: h => `https://www.tiktok.com/@${h}`, youtube: h => `https://m.youtube.com/@${h}` };

@@ -51,7 +51,7 @@ const RULES = {
     live: [['a[href="/live"]'], [/^\/live/]],
   },
 };
-const HOME = { instagram: '/direct/inbox/', tiktok: '/messages', youtube: '/feed/subscriptions' };
+const HOME = { instagram: '/direct/inbox/', tiktok: null, youtube: '/feed/subscriptions' };
 const STYLE_ID = 'sg-style';
 // A video a friend sent opens on a single-video page. Pin the viewer to that one video.
 const SINGLE = {
@@ -123,11 +123,11 @@ function apply(cfg) {
   const looking = a.lookupUntil && a.lookupUntil > Date.now();
   const dmsOnly = host === 'instagram' && t.dmsOnly && !looking;
   const dmOk = p.startsWith('/direct') || p.startsWith('/accounts') || /^\/(reel|p|tv)\/[^/]+/.test(p) || /^\/reels\/(?!audio)[^/]+/.test(p);
-  if (dmsOnly && !dmOk) return location.replace(HOME[host]);
+  if (dmsOnly && !dmOk) return (HOME[host] ? location.replace(HOME[host]) : blockPage(a.back));
   for (const [key, [sels, redirects]] of Object.entries(RULES[host])) {
     if (!t[key] || (looking && ['search', 'explore'].includes(key))) continue;
     css += sels.map(s => s + '{display:none!important}').join('');
-    if (redirects.some(r => r.test(p))) return location.replace(HOME[host]);
+    if (redirects.some(r => r.test(p))) return (HOME[host] ? location.replace(HOME[host]) : blockPage(a.back));
   }
   // Reels opened from a DM (/reel/<id>) stay viewable, but hide the "next video" controls.
   css += 'button[data-e2e="arrow-right"],button[data-e2e="arrow-left"],[data-e2e="video-switch"]{display:none!important}';
