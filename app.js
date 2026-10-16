@@ -7,6 +7,7 @@ const APPS = {
   youtube: { name: 'YouTube', icon: '▶️', open: 'https://m.youtube.com/feed/subscriptions', full: 'https://m.youtube.com/' },
 };
 const profileUrl = { instagram: h => `https://www.instagram.com/${h}/`, tiktok: h => `https://www.tiktok.com/@${h}`, youtube: h => `https://m.youtube.com/@${h}` };
+const IS_STANDALONE = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
 const DAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const TARGETS = {
   instagram: [['reelsTab', 'Reels tab / scrolling'], ['reelsFeed', 'Reels inside the feed'], ['explore', 'Explore page'], ['stories', 'Stories bar'], ['search', 'Search'], ['feed', 'Home feed posts'], ['dmsOnly', 'DMs only (block everything but messages)']],
@@ -17,7 +18,7 @@ const defTargets = k => Object.fromEntries(TARGETS[k].map(([t]) => [t, (['reelsT
 const defApp = k => ({ on: true, mode: 'schedule', start: '09:00', end: '17:00', days: [0, 1, 2, 3, 4, 5, 6], blockAll: false, targets: defTargets(k) });
 const def = () => ({
   first: dayKey(), tab: 'home',
-  settings: { track: true, threshold: 60, requireTasks: true, lookup: true },
+  settings: { track: true, threshold: 60, requireTasks: true, lookup: true, safariHandoff: false },
   apps: Object.fromEntries(Object.keys(APPS).map(k => [k, defApp(k)])),
   learn: { on: false, topics: [], ytOn: false, ytKey: '', src: { wiki: true, hn: true } },
   tasks: [], override: {}, lookup: {}, usage: {}, pending: null,
@@ -80,7 +81,9 @@ function launch(app, full, url) {
   S.pending = { app, start: Date.now() }; save();
   // the Safari userscript reads this hash to pick up current limits + unlock state
   const cfg = enc(JSON.parse(exportConfig()).apps[app]);
-  window.open((url || (full ? APPS[app].full : APPS[app].open)) + '#sg=' + cfg, '_blank', 'noopener');
+  const target = (url || (full ? APPS[app].full : APPS[app].open)) + '#sg=' + cfg;
+  // x-safari-https:// asks iOS to open the link in real Safari instead of the in-app browser
+  if (S.settings.safariHandoff) location.href = 'x-safari-' + target; else window.open(target, '_blank', 'noopener');
   render();
 }
 // 10-minute pass: lets search + profiles work while feeds stay locked (e.g. grabbing a handle at a party)
@@ -96,7 +99,7 @@ function lookup(app, handle) {
 }
 function endSession() {
   const p = S.pending; if (!p) return;
-  addUsage(p.app, Math.max(0, (Date.now() - p.start) / 60000));
+  addUsage(p.app, Math.min(180, Math.max(0, (Date.now() - p.start) / 60000))); // ignore anything past 3h (forgot to come back)
   S.pending = null; save(); render();
 }
 // when user returns to this tab, the session they opened is over
@@ -201,8 +204,7 @@ function vHome() {
       ${canUnlock && S.settings.lookup ? `<div class="row"><input id="h-${k}" placeholder="🔎 @handle to look up" style="flex:1;min-width:140px"><button data-go="${k}">Profile</button><button data-lookup="${k}">Search 10 min</button></div>` : ''}</div>`;
   }).join('') || '<div class="card mu">No services enabled. Turn them on in Limits.</div>';
   const p = S.pending ? `<div class="card"><div class="row"><span>⏱ ${APPS[S.pending.app].name} session running…</span><button class="p" data-end>I'm back</button></div><div class="mu">Time is added automatically when you return to this tab.</div></div>` : '';
-  const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
-  const warn = standalone ? `<div class="card"><b>⚠️ Blocking won't work from this icon</b><div class="mu">Home Screen web-app mode opens Instagram in a built-in browser where Safari extensions don't run, and it keeps separate logins. Delete this icon, open ScrollGuard in Safari, tap Share → Add to Home Screen, and turn OFF "Open as Web App".</div></div>` : '';
+  const warn = IS_STANDALONE && !S.settings.safariHandoff ? `<div class="card"><b>⚠️ Blocking won't work from this icon</b><div class="mu">Home Screen web-app mode opens Instagram in a built-in browser where Safari extensions don't run, and it keeps separate logins. Fix: turn on \"Hand off to Safari\" in Limits (experimental), or re-add this icon from Safari with \"Open as Web App\" OFF.</div></div>` : '';
   return `<h1>ScrollGuard</h1>${warn}${p}${cards}${vStats()}`;
 }
 const resolveApp = v => { const k = v.trim().toLowerCase(); return APPS[k] ? k : (v.trim() || 'Other'); };
@@ -240,6 +242,7 @@ function vBlock() {
   <div class="card"><h2>Features</h2>
   <label class="row"><span>Tasks required to unlock early<br><small class="mu">Off = you can unlock any time (with a confirm)</small></span><input type="checkbox" ${S.settings.requireTasks ? 'checked' : ''} data-s="requireTasks"></label>
   <label class="row"><span>Quick lookup (profile / search for 10 min)</span><input type="checkbox" ${S.settings.lookup ? 'checked' : ''} data-s="lookup"></label>
+  <label class="row"><span>Hand off to Safari<br><small class="mu">For Home Screen web-app mode. Experimental.</small></span><input type="checkbox" ${S.settings.safariHandoff ? 'checked' : ''} data-s="safariHandoff"></label>
   <label class="row"><span>Track time spent scrolling</span><input type="checkbox" ${S.settings.track ? 'checked' : ''} data-s="track"></label>
   <div class="row"><span>Daily Instagram goal (min)</span><input type="number" style="width:90px" value="${S.settings.threshold}" data-s="threshold"></div></div>
   <div class="card"><h2>Blocker sync</h2><div class="mu">Launching from ScrollGuard sends your current limits to the Safari userscript automatically. For the desktop extension, copy the config and paste it into its popup.</div>
@@ -271,7 +274,7 @@ function vSocial() {
 // ---------- extension config ----------
 function exportConfig() {
   const apps = {};
-  for (const k of Object.keys(APPS)) { const a = S.apps[k]; apps[k] = { mode: a.on ? a.mode : 'off', start: a.start, end: a.end, days: a.days, blockAll: a.blockAll, targets: a.targets, unlockUntil: S.override[k] || 0, lookupUntil: S.lookup[k] || 0 }; }
+  for (const k of Object.keys(APPS)) { const a = S.apps[k]; apps[k] = { mode: a.on ? a.mode : 'off', start: a.start, end: a.end, days: a.days, blockAll: a.blockAll, targets: a.targets, unlockUntil: S.override[k] || 0, lookupUntil: S.lookup[k] || 0, track: S.settings.track, back: IS_STANDALONE ? '' : location.origin + location.pathname }; }
   return JSON.stringify({ v: 1, apps });
 }
 
@@ -378,4 +381,13 @@ document.addEventListener('change', e => {
 // refresh lock status as time passes
 setInterval(() => { if (S.tab !== 'learn' && !document.hidden && !document.activeElement?.matches('input,textarea,select')) render(); }, 60000);
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+function readLog() {
+  const m = location.hash.match(/log=([a-z]+):([\d.]+)/); if (!m) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  if (APPS[m[1]]) addUsage(m[1], Math.min(+m[2], 240));
+  S.pending = null; save();
+}
+readLog();
+if (S.pending && Date.now() - S.pending.start > 3000 && !document.hidden) endSession();
+addEventListener('hashchange', () => { readLog(); render(); });
 render(); msFinish();

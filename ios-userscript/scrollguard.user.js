@@ -98,7 +98,25 @@ const dec = s => JSON.parse(decodeURIComponent(escape(atob(s))));
 function read() { try { return JSON.parse(localStorage.getItem(KEY)); } catch { return null; } }
 // Launching from ScrollGuard appends #sg=<config>; store it, then tidy the URL.
 const m = location.hash.match(/sg=([^&]+)/);
-if (m) { try { localStorage.setItem(KEY, JSON.stringify(dec(decodeURIComponent(m[1])))); history.replaceState(null, '', location.pathname + location.search); } catch {} }
+if (m) { try { localStorage.setItem(KEY, JSON.stringify(dec(decodeURIComponent(m[1])))); history.replaceState(null, '', location.pathname + location.search); localStorage.setItem('scrollguard.time', '0'); } catch {} }
 apply(read());
 setInterval(() => apply(read()), 30000);
 let last = location.href; setInterval(() => { if (location.href !== last) { last = location.href; apply(read()); } }, 500);
+
+// ---- exact time on this site, reported back to ScrollGuard via the Done button ----
+const TKEY = 'scrollguard.time';
+let acc = +localStorage.getItem(TKEY) || 0, since = document.hidden ? 0 : Date.now();
+function tick() { if (since) { const n = Date.now(); acc += (n - since) / 60000; since = n; } try { localStorage.setItem(TKEY, acc); } catch {} }
+document.addEventListener('visibilitychange', () => { if (document.hidden) { tick(); since = 0; } else since = Date.now(); });
+setInterval(() => {
+  if (!document.hidden) tick();
+  const cfg = read(); if (!cfg || !cfg.back || !cfg.track || !document.body) return;
+  let b = document.getElementById('sg-done');
+  if (!b) {
+    b = document.createElement('a'); b.id = 'sg-done';
+    b.style.cssText = 'position:fixed;right:12px;bottom:90px;z-index:2147483647;background:#7c6cf0;color:#fff;font:600 14px system-ui;padding:9px 14px;border-radius:99px;text-decoration:none;box-shadow:0 2px 8px rgba(0,0,0,.4)';
+    b.onclick = () => { tick(); b.href = cfg.back + '#log=' + host + ':' + acc.toFixed(1); setTimeout(() => { acc = 0; try { localStorage.setItem(TKEY, '0'); } catch {} }, 300); };
+    document.body.appendChild(b);
+  }
+  b.textContent = '🛡️ Done · ' + Math.round(acc) + 'm'; b.href = cfg.back + '#log=' + host + ':' + acc.toFixed(1);
+}, 2000);
