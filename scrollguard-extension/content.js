@@ -46,22 +46,45 @@ const SINGLE = {
 };
 let pinned = null;
 // Freeze the page's own scroll areas around the video, so swiping can't reach the next one.
+const frozen = new Map(); // element -> its original inline style, restored on release
+const FREEZE = [['overflow-y', 'hidden'], ['scroll-snap-type', 'none'], ['touch-action', 'none']];
+function freeze(e, props) {
+  if (!frozen.has(e)) frozen.set(e, props.map(([k]) => [k, e.style.getPropertyValue(k), e.style.getPropertyPriority(k)]));
+  for (const [k, v] of props) e.style.setProperty(k, v, 'important');
+}
 function lockScrollers() {
   document.querySelectorAll('video').forEach(v => {
-    for (let e = v.parentElement; e && e !== document.documentElement; e = e.parentElement) {
-      if (e.scrollHeight > e.clientHeight + 40) for (const [k, val] of [['overflow-y', 'hidden'], ['scroll-snap-type', 'none'], ['touch-action', 'none']]) e.style.setProperty(k, val, 'important');
-    }
+    for (let e = v.parentElement; e && e !== document.documentElement; e = e.parentElement) if (e.scrollHeight > e.clientHeight + 40) freeze(e, FREEZE);
   });
-  for (const el of [document.documentElement, document.body]) if (el) { el.style.setProperty('overflow', 'hidden', 'important'); el.style.setProperty('touch-action', 'none', 'important'); }
+  for (const el of [document.documentElement, document.body]) if (el) freeze(el, [['overflow', 'hidden'], ['touch-action', 'none']]);
 }
 function release() {
   if (!pinned) return;
   pinned = null;
-  for (const el of [document.documentElement, document.body]) if (el) { el.style.removeProperty('overflow'); el.style.removeProperty('touch-action'); }
+  for (const [e, old] of frozen) for (const [k, v, pr] of old) v ? e.style.setProperty(k, v, pr) : e.style.removeProperty(k);
+  frozen.clear();
 }
-setInterval(() => { if (pinned) lockScrollers(); }, 400);
+// On Instagram a reel opened from a DM can play as a full-screen overlay while the address stays /direct/t/...
+function bigVideo() {
+  if (host !== 'instagram' || !location.pathname.startsWith('/direct')) return false;
+  for (const v of document.querySelectorAll('video')) {
+    const r = v.getBoundingClientRect();
+    if (r.height > innerHeight * 0.6 && r.width > innerWidth * 0.5 && r.bottom > 0 && r.top < innerHeight) return true;
+  }
+  return false;
+}
+let lastT = null; // targets while locked, else null
+setInterval(() => {
+  if (lastT && lastT.reelsTab && !SINGLE[host][0].test(location.pathname)) {
+    if (bigVideo()) { if (!pinned) pinned = { id: 'overlay', url: location.href }; }
+    else if (pinned && pinned.id === 'overlay') release();
+  }
+  if (pinned) lockScrollers();
+}, 400);
 const stop = e => {
-  if (!pinned || e.target.closest?.('[role="dialog"],textarea,input')) return; // comments still scroll
+  if (!pinned) return;
+  const dlg = e.target.closest?.('[role="dialog"]');
+  if (e.target.closest?.('textarea,input') || (dlg && !dlg.querySelector('video'))) return; // comments still scroll
   e.preventDefault(); e.stopPropagation();
 };
 addEventListener('wheel', stop, { passive: false, capture: true });
@@ -78,10 +101,10 @@ function apply(cfg) {
   const a = cfg?.apps?.[host]; if (!a) return;
   const lk = locked(a);
   document.getElementById(STYLE_ID)?.remove();
-  if (!lk) { release(); return; }
+  if (!lk) { lastT = null; release(); return; }
   const p = location.pathname;
   if (lk === 'all') return location.replace('data:text/html,<body style="font:20px system-ui;text-align:center;padding:30vh 20px;background:%230f1115;color:white">🛡️ Blocked by ScrollGuard');
-  const t = a.targets || {}; let css = '';
+  const t = a.targets || {}; lastT = t; let css = '';
   const looking = a.lookupUntil && a.lookupUntil > Date.now();
   const dmsOnly = host === 'instagram' && t.dmsOnly && !looking;
   const dmOk = p.startsWith('/direct') || p.startsWith('/accounts') || /^\/(reel|p|tv)\/[^/]+/.test(p) || /^\/reels\/(?!audio)[^/]+/.test(p);
