@@ -3,7 +3,7 @@
 
 // ---------- constants ----------
 const KEY = 'scrollguard.v1';
-const BUILD = '2026-10-16.6';
+const BUILD = '2026-10-16.7';
 const APPS = {
   instagram: { name: 'Instagram', open: 'https://www.instagram.com/direct/inbox/', full: 'https://www.instagram.com/' },
   tiktok: { name: 'TikTok', open: 'https://www.tiktok.com/', full: 'https://www.tiktok.com/' },
@@ -142,7 +142,7 @@ let pausing = null;
 function requestOpen(k, full, url, lk) {
   const secs = S.settings.pause ? (S.settings.pauseSecs || 25) : 0;
   if (!secs) return openNow({ k, full, url, lk });
-  pausing = { k, full, url, lk, secs, end: Date.now() + secs * 1000 }; render();
+  pausing = { k, full, url, lk, secs, end: Date.now() + secs * 1000, skip: !status(k).active }; render(); // no restriction: the timer can be skipped
 }
 function openNow(p) {
   pausing = null; sheet = null;
@@ -155,7 +155,7 @@ function tickPause() {
   const left = pauseLeft(), s = $('#pSecs'), r = $('#pRing'), b = $('#pGo');
   if (s) s.textContent = left;
   if (r) r.style.strokeDashoffset = (326.7 * (1 - left / pausing.secs)).toFixed(1);
-  if (b) { b.disabled = left > 0; b.textContent = left > 0 ? `Continue in ${left}s` : `Continue to ${APPS[pausing.k].name}`; }
+  if (b) { b.disabled = left > 0 && !pausing.skip; b.textContent = pausing.skip && left > 0 ? `Skip and go to ${APPS[pausing.k].name}` : left > 0 ? `Continue in ${left}s` : `Continue to ${APPS[pausing.k].name}`; }
 }
 setInterval(tickPause, 250);
 function endSession() {
@@ -368,7 +368,7 @@ function vPause() {
     <div class="ring"><svg viewBox="0 0 120 120" aria-hidden="true"><circle class="rt" cx="60" cy="60" r="52"/><circle class="rp" id="pRing" cx="60" cy="60" r="52" style="stroke-dashoffset:${(326.7 * (1 - pauseLeft() / pausing.secs)).toFixed(1)}"/></svg><span id="pSecs">${pauseLeft()}</span></div>
     <p class="lead">Take a breath. Is this how you want to spend the next few minutes?</p>
     <button class="btn primary block" data-a="pauseback">Go back</button>
-    <button class="btn block" id="pGo" data-a="pausego" ${pauseLeft() > 0 ? 'disabled' : ''}>${pauseLeft() > 0 ? `Continue in ${pauseLeft()}s` : `Continue to ${A.name}`}</button>
+    <button class="btn block" id="pGo" data-a="pausego" ${pauseLeft() > 0 && !pausing.skip ? 'disabled' : ''}>${pausing.skip && pauseLeft() > 0 ? `Skip and go to ${A.name}` : pauseLeft() > 0 ? `Continue in ${pauseLeft()}s` : `Continue to ${A.name}`}</button>
   </div></div>`;
 }
 
@@ -597,7 +597,7 @@ document.addEventListener('click', async e => {
     case 'close': sheet = null; break;
     case 'openapp': return requestOpen(k, el.dataset.full === '1');
     case 'pauseback': pausing = null; sheet = null; break;
-    case 'pausego': if (pausing && Date.now() >= pausing.end) return openNow(pausing); return;
+    case 'pausego': if (pausing && (pausing.skip || Date.now() >= pausing.end)) return openNow(pausing); return;
     case 'go': { const h = $('#h-handle').value.trim(); return h ? lookup(k, h) : alert('Type a handle first.'); }
     case 'search': return lookup(k);
     case 'unlock': return unlock(k);
