@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ScrollGuard</title>
+<link rel="manifest" href="manifest.json"><link rel="icon" href="icon.svg">
+<meta name="theme-color" content="#0f1115">
+<style>
+:root{--bg:#0f1115;--card:#1a1d24;--line:#2a2e38;--tx:#eef0f4;--mu:#8b91a0;--ac:#7c6cf0;--ok:#34c38f;--bad:#ef5b5b;--warn:#f5a623}
+@media(prefers-color-scheme:light){:root{--bg:#f4f5f8;--card:#fff;--line:#e2e4ea;--tx:#15171c;--mu:#6a7080}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.45 system-ui,sans-serif;padding:0 16px 90px}
+main{max-width:640px;margin:0 auto;padding-top:max(16px,env(safe-area-inset-top))}
+h1{font-size:22px;margin:8px 0 14px}h2{font-size:15px;margin:0 0 10px;color:var(--mu);text-transform:uppercase;letter-spacing:.05em}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.row{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin:6px 0}
+button,select,input{font:inherit;color:var(--tx);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+button{cursor:pointer}button.p{background:var(--ac);border-color:var(--ac);color:#fff}button.d{color:var(--bad)}button:disabled{opacity:.45;cursor:not-allowed}
+input[type=text],input:not([type]),textarea{width:100%}textarea{font:inherit;color:var(--tx);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px;width:100%;min-height:70px}
+nav{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--line);display:flex;padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;border:0;border-radius:0;background:none;padding:12px 4px;color:var(--mu);font-size:13px}nav button.on{color:var(--ac);font-weight:600}
+.tag{font-size:12px;padding:2px 8px;border-radius:99px;border:1px solid var(--line);color:var(--mu)}
+.tag.on{color:#fff;background:var(--bad);border-color:var(--bad)}.tag.free{color:#fff;background:var(--ok);border-color:var(--ok)}
+.mu{color:var(--mu);font-size:14px}.big{font-size:40px;font-weight:700;line-height:1}
+.days button{padding:6px 9px;font-size:13px}.days button.on{background:var(--ac);color:#fff;border-color:var(--ac)}
+.pet{font-size:72px;text-align:center}.bar{height:8px;background:var(--line);border-radius:9px;overflow:hidden}.bar i{display:block;height:100%;background:var(--ok)}
+.badge{display:inline-block;margin:3px;padding:6px 10px;border:1px solid var(--line);border-radius:10px;font-size:14px}.badge.off{opacity:.35;filter:grayscale(1)}
+.task{display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}.task.done span{text-decoration:line-through;color:var(--mu)}.task span{flex:1}
+.note{font-size:13px;color:var(--mu);border-left:3px solid var(--warn);padding-left:10px;margin:10px 0}
+.lb{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);align-items:center}.lb b{width:24px}.lb span{flex:1}
+</style></head><body><main id="app"></main>
+<nav id="nav"></nav>
+<script src="app.js"></script></body></html>
