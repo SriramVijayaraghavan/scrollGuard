@@ -1,28 +1,37 @@
 'use strict';
-// ---------- state ----------
+// ScrollGuard. Local-first: everything is stored in this browser. No server.
+
+// ---------- constants ----------
 const KEY = 'scrollguard.v1';
 const APPS = {
-  instagram: { name: 'Instagram', icon: '📸', open: 'https://www.instagram.com/direct/inbox/', full: 'https://www.instagram.com/' },
-  tiktok: { name: 'TikTok', icon: '🎵', open: 'https://www.tiktok.com/', full: 'https://www.tiktok.com/' },
-  youtube: { name: 'YouTube', icon: '▶️', open: 'https://m.youtube.com/feed/subscriptions', full: 'https://m.youtube.com/' },
+  instagram: { name: 'Instagram', open: 'https://www.instagram.com/direct/inbox/', full: 'https://www.instagram.com/' },
+  tiktok: { name: 'TikTok', open: 'https://www.tiktok.com/', full: 'https://www.tiktok.com/' },
+  youtube: { name: 'YouTube', open: 'https://m.youtube.com/feed/subscriptions', full: 'https://m.youtube.com/' },
 };
+const KEYS = Object.keys(APPS);
+const ORDER = ['instagram', 'tiktok', 'youtube', 'other']; // fixed chart/legend order
+const NAMES = { instagram: 'Instagram', tiktok: 'TikTok', youtube: 'YouTube', other: 'Other' };
+const ALLOW = { instagram: { phrase: 'open messages', btn: 'Open messages' }, youtube: { phrase: 'open your subscriptions', btn: 'Open subscriptions' } };
 const profileUrl = { instagram: h => `https://www.instagram.com/${h}/`, tiktok: h => `https://www.tiktok.com/@${h}`, youtube: h => `https://m.youtube.com/@${h}` };
 const IS_STANDALONE = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
 const DAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+const DAYNAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const GREETS = ['Welcome', 'Hello', 'Greetings', 'Salutations', "What's up", 'Hey there', 'Hi', 'Howdy', 'Good day', 'Welcome back'];
+const ACCENTS = [['#12a67c', 'Emerald'], ['#2f6bff', 'Cobalt'], ['#f0701f', 'Tangerine'], ['#e0414e', 'Crimson']];
 const TARGETS = {
-  instagram: [['reelsTab', 'Reels tab / scrolling'], ['reelsFeed', 'Reels inside the feed'], ['explore', 'Explore page'], ['stories', 'Stories bar'], ['search', 'Search'], ['feed', 'Home feed posts'], ['dmsOnly', 'DMs only (block everything but messages)']],
-  tiktok: [['forYou', 'For You feed'], ['following', 'Following feed'], ['explore', 'Explore / Discover'], ['live', 'LIVE']],
-  youtube: [['shortsTab', 'Shorts tab / scrolling'], ['shortsShelf', 'Shorts inside the feed'], ['homeFeed', 'Home recommendations'], ['related', 'Related videos']],
+  instagram: [['reelsTab', 'Reels tab and scrolling'], ['reelsFeed', 'Reels inside the feed'], ['explore', 'Explore page'], ['stories', 'Stories bar'], ['search', 'Search'], ['feed', 'Home feed posts'], ['dmsOnly', 'Everything except messages']],
+  tiktok: [['forYou', 'For You feed'], ['following', 'Following feed'], ['explore', 'Explore'], ['live', 'LIVE']],
+  youtube: [['shortsTab', 'Shorts tab and scrolling'], ['shortsShelf', 'Shorts inside the feed'], ['homeFeed', 'Home recommendations'], ['related', 'Related videos']],
 };
 const defTargets = k => Object.fromEntries(TARGETS[k].map(([t]) => [t, (['reelsTab', 'reelsFeed', 'forYou', 'following', 'explore', 'shortsTab', 'shortsShelf'].includes(t) && !(k === 'instagram' && t === 'explore')) || (k === 'instagram' && t === 'dmsOnly')]));
 const defApp = k => ({ on: true, whole: k === 'tiktok', mode: 'schedule', start: '09:00', end: '17:00', days: [0, 1, 2, 3, 4, 5, 6], blockAll: false, targets: defTargets(k) });
 const def = () => ({
-  first: dayKey(), tab: 'home',
-  settings: { track: true, threshold: 60, requireTasks: true, lookup: true, safariHandoff: false },
-  apps: Object.fromEntries(Object.keys(APPS).map(k => [k, defApp(k)])),
+  first: dayKey(), tab: 'home', account: null,
+  ui: { theme: 'auto', accent: '#12a67c' },
+  settings: { track: true, threshold: 60, requireTasks: true, lookup: true, safariHandoff: false, requirePw: true },
+  apps: Object.fromEntries(KEYS.map(k => [k, defApp(k)])),
   learn: { on: false, topics: [], ytOn: false, ytKey: '', src: { wiki: true, hn: true } },
   tasks: [], override: {}, lookup: {}, usage: {}, pending: null,
-  profile: { name: '', id: Math.random().toString(36).slice(2, 8) },
   ms: { clientId: '', token: '', exp: 0 },
 });
 let S = load();
@@ -30,39 +39,62 @@ function load() {
   const d = def();
   try {
     const o = JSON.parse(localStorage.getItem(KEY)) || {};
-    for (const k of Object.keys(APPS)) o.apps = o.apps || {}, o.apps[k] = Object.assign(d.apps[k], o.apps[k], { targets: Object.assign(d.apps[k].targets, (o.apps[k] || {}).targets) });
+    o.apps = o.apps || {};
+    for (const k of KEYS) o.apps[k] = Object.assign(d.apps[k], o.apps[k], { targets: Object.assign(d.apps[k].targets, (o.apps[k] || {}).targets) });
     o.learn = Object.assign(d.learn, o.learn, { src: Object.assign(d.learn.src, (o.learn || {}).src) });
     o.settings = Object.assign(d.settings, o.settings);
-    return Object.assign(d, o);
+    o.ui = Object.assign(d.ui, o.ui);
+    const s = Object.assign(d, o);
+    s.tab = 'home';
+    return s;
   } catch { return d; }
 }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch {} }
 function dayKey(d = new Date()) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const toMin = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+const pick = a => a[Math.floor(Math.random() * a.length)];
+const $ = s => document.querySelector(s);
+const fmt = m => { m = Math.round(m); return m >= 60 ? Math.floor(m / 60) + 'h' + (m % 60 ? ' ' + (m % 60) + 'm' : '') : m + 'm'; };
+const enc = o => btoa(unescape(encodeURIComponent(JSON.stringify(o))));
+const fmtTime = t => { const [h, m] = t.split(':').map(Number); return ((h + 11) % 12 + 1) + (m ? ':' + String(m).padStart(2, '0') : '') + (h < 12 ? ' AM' : ' PM'); };
+
+// ---------- session / auth (local only) ----------
+let authed = false; try { authed = sessionStorage.getItem('sg.ok') === '1'; } catch {}
+let sheet = null, histRange = 'week';
+const u8 = b => btoa(String.fromCharCode(...new Uint8Array(b)));
+async function hashPw(pw, saltB64) {
+  const salt = Uint8Array.from(atob(saltB64), c => c.charCodeAt(0));
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveBits']);
+  return u8(await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 150000, hash: 'SHA-256' }, key, 256));
+}
+const newSalt = () => u8(crypto.getRandomValues(new Uint8Array(16)));
+function setAuthed(v) { authed = v; try { v ? sessionStorage.setItem('sg.ok', '1') : sessionStorage.removeItem('sg.ok'); } catch {} }
+let greet; try { greet = sessionStorage.getItem('sg.greet'); } catch {}
+if (!greet) { greet = pick(GREETS); try { sessionStorage.setItem('sg.greet', greet); } catch {} }
 
 // ---------- restriction logic ----------
-// Returns {active, reason, minsLeft} for one app right now.
 function status(app, now = new Date()) {
-  const a = S.apps[app];
-  const ov = S.override[app];
+  const a = S.apps[app], ov = S.override[app];
   if (!a.on) return { active: false };
   if (a.blockAll) return { active: true, reason: 'blocked entirely', full: true };
   if (a.mode === 'off') return { active: false };
   let inWin = true, minsLeft = null;
   if (a.mode === 'schedule') {
-    const cur = now.getHours() * 60 + now.getMinutes(), s = toMin(a.start), e = toMin(a.end);
-    const overnight = e <= s;
-    const dow = now.getDay();
-    // overnight windows that started yesterday belong to yesterday's day-of-week
-    if (!overnight) { inWin = a.days.includes(dow) && cur >= s && cur < e; if (inWin) minsLeft = e - cur; }
+    const cur = now.getHours() * 60 + now.getMinutes(), s = toMin(a.start), e = toMin(a.end), dow = now.getDay();
+    if (e > s) { inWin = a.days.includes(dow) && cur >= s && cur < e; if (inWin) minsLeft = e - cur; }
     else if (cur >= s) { inWin = a.days.includes(dow); minsLeft = 1440 - cur + e; }
     else if (cur < e) { inWin = a.days.includes((dow + 6) % 7); minsLeft = e - cur; }
     else inWin = false;
   }
   if (!inWin) return { active: false };
   if (ov && ov > now.getTime()) return { active: false, overridden: true };
-  return { active: true, whole: !!a.whole, reason: a.mode === 'always' ? 'always on' : `${a.start}–${a.end}`, minsLeft };
+  return { active: true, whole: !!a.whole, reason: a.mode === 'always' ? 'Always on' : `${fmtTime(a.start)} to ${fmtTime(a.end)}`, minsLeft };
+}
+// What the user may still do while an app is restricted.
+function allowed(k, st) {
+  if (st.whole || !ALLOW[k]) return { phrase: 'look up profiles', btn: null };
+  return ALLOW[k];
 }
 const allDone = () => S.tasks.length > 0 && S.tasks.every(t => t.done);
 function unlock(app) {
@@ -79,14 +111,12 @@ function addUsage(app, min, day = dayKey()) {
 }
 function launch(app, full, url) {
   S.pending = { app, start: Date.now() }; save();
-  // the Safari userscript reads this hash to pick up current limits + unlock state
-  const cfg = enc(JSON.parse(exportConfig()).apps[app]);
+  const cfg = enc(JSON.parse(exportConfig()).apps[app]); // the Safari userscript reads this hash
   const target = (url || (full ? APPS[app].full : APPS[app].open)) + '#sg=' + cfg;
-  // x-safari-https:// asks iOS to open the link in real Safari instead of the in-app browser
   if (S.settings.safariHandoff) location.href = 'x-safari-' + target; else window.open(target, '_blank', 'noopener');
   render();
 }
-// 10-minute pass: lets search + profiles work while feeds stay locked (e.g. grabbing a handle at a party)
+// 10-minute pass: profiles and search work while feeds stay locked
 function lookup(app, handle) {
   let url;
   if (handle) {
@@ -95,55 +125,104 @@ function lookup(app, handle) {
     url = profileUrl[app](h);
   }
   S.lookup[app] = Date.now() + 10 * 60000; save();
-  launch(app, true, url);
+  sheet = null; launch(app, true, url);
 }
 function endSession() {
   const p = S.pending; if (!p) return;
-  addUsage(p.app, Math.min(180, Math.max(0, (Date.now() - p.start) / 60000))); // ignore anything past 3h (forgot to come back)
+  addUsage(p.app, Math.min(180, Math.max(0, (Date.now() - p.start) / 60000)));
   S.pending = null; save(); render();
 }
-// when user returns to this tab, the session they opened is over
 document.addEventListener('visibilitychange', () => { if (!document.hidden && S.pending && Date.now() - S.pending.start > 3000) endSession(); });
 
-// ---------- stats / pet / badges ----------
+// ---------- stats ----------
 const used = (day, app = 'instagram') => (S.usage[day] || {})[app] || 0;
-function pastDays() { // completed days since first use, newest first
+const dayTotal = key => Object.values(S.usage[key] || {}).reduce((a, b) => a + b, 0);
+function pastDays() {
   const out = [], d = new Date(); d.setDate(d.getDate() - 1);
   while (dayKey(d) >= S.first && out.length < 400) { out.push(dayKey(d)); d.setDate(d.getDate() - 1); }
   return out;
 }
 function streak() {
   let n = 0;
-  if (used(dayKey()) > S.settings.threshold) return 0; // today already over → broken
+  if (used(dayKey()) > S.settings.threshold) return 0;
   for (const k of pastDays()) { if (used(k) <= S.settings.threshold) n++; else break; }
   return n;
 }
-const BADGES = [
-  ['🌱', 'Light scroller', '≤60 min Instagram in a full day', p => p.best <= 60],
-  ['🧘', 'Mindful', '≤30 min in a full day', p => p.best <= 30],
-  ['🪨', 'Monk', '≤15 min in a full day', p => p.best <= 15],
-  ['🔥', '3-day streak', '3 days under your threshold', p => p.longest >= 3],
-  ['⚡', '7-day streak', '7 days under your threshold', p => p.longest >= 7],
-  ['🐉', '30-day streak', '30 days under your threshold', p => p.longest >= 30],
+const PET = [[0, 'Chick'], [7, 'Fox'], [14, 'Lion'], [30, 'Dragon']];
+const petIdx = n => PET.reduce((a, p, i) => n >= p[0] ? i : a, 0);
+const TIERS = [
+  { id: 'locked', name: 'Locked In', max: 120, range: '0 to 2 hrs', icon: 'brain', bg: 'var(--accent)' },
+  { id: 'light', name: 'Light Scroller', max: 180, range: '2 to 3 hrs', icon: 'ramp', bg: '#2f9e6b' },
+  { id: 'cutting', name: 'Cutting Back', max: 300, range: '3 to 5 hrs', icon: 'phone', bg: 'var(--warn)' },
+  { id: 'chud', name: 'Chud', max: Infinity, range: '5+ hrs', icon: 'heartbreak', bg: 'var(--danger)' },
 ];
-function badgeProgress() {
-  const days = pastDays().reverse(); let best = Infinity, run = 0, longest = 0;
-  for (const k of days) { const u = used(k); best = Math.min(best, u); if (u <= S.settings.threshold) { run++; longest = Math.max(longest, run); } else run = 0; }
-  return { best, longest };
+const tierFor = m => TIERS.find(t => m < t.max);
+function chartData(n) {
+  const out = [], d = new Date();
+  for (let i = 0; i < n; i++) {
+    const key = dayKey(d), u = S.usage[key] || {};
+    const r = { key, date: new Date(d), instagram: u.instagram || 0, tiktok: u.tiktok || 0, youtube: u.youtube || 0, other: 0 };
+    for (const [k, v] of Object.entries(u)) if (!APPS[k]) r.other += v;
+    r.total = r.instagram + r.tiktok + r.youtube + r.other;
+    out.unshift(r); d.setDate(d.getDate() - 1);
+  }
+  return out;
 }
-const earned = () => { const p = badgeProgress(); return BADGES.filter(b => b[3](p)); };
-const PET = [[0, '🐥', 'Chick'], [7, '🦊', 'Fox'], [14, '🦁', 'Lion'], [30, '🐉', 'Dragon']];
-const petFor = n => PET.filter(p => n >= p[0]).pop();
-const weekAvg = () => { let t = 0; const d = new Date(); for (let i = 0; i < 7; i++) { t += used(dayKey(d)); d.setDate(d.getDate() - 1); } return Math.round(t / 7); };
-const fmt = m => m >= 60 ? Math.floor(m / 60) + 'h ' + Math.round(m % 60) + 'm' : Math.round(m) + 'm';
 
-const enc = o => btoa(unescape(encodeURIComponent(JSON.stringify(o))));
+// ---------- icons and art ----------
+const I = {
+  home: '<path d="M4 11.5 12 5l8 6.5"/><path d="M6 10.5V19h12v-8.5"/><path d="M10 19v-5h4v5"/>',
+  sliders: '<path d="M5 7h8M17 7h2M5 17h2M11 17h8"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
+  book: '<path d="M5 5.5C7.5 4.5 10 4.7 12 6c2-1.3 4.5-1.5 7-.5V18c-2.5-1-5-.8-7 .5-2-1.3-4.5-1.5-7-.5z"/><path d="M12 6v12.5"/>',
+  tasks: '<circle cx="12" cy="12" r="8"/><path d="m8.5 12.3 2.4 2.4 4.6-5"/>',
+  chart: '<path d="M5 19V11M12 19V5M19 19v-6"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+  lock: '<rect x="6" y="11" width="12" height="9" rx="2.5"/><path d="M8.5 11V8.5a3.5 3.5 0 0 1 7 0V11"/>',
+  chev: '<path d="m9 6 6 6-6 6"/>',
+  close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  trash: '<path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/>',
+  shield: '<path d="M12 3.5 19 6v5.5c0 4.2-3 7.2-7 9-4-1.8-7-4.8-7-9V6z"/><path d="m9 12 2.2 2.2L15.5 10"/>',
+  news: '<rect x="5" y="5" width="14" height="14" rx="2.5"/><path d="M8.5 9h7M8.5 12.5h7M8.5 16h4"/>',
+  film: '<rect x="4" y="6" width="16" height="12" rx="2.5"/><path d="m10.5 9.5 4 2.5-4 2.5z"/>',
+};
+const ico = (n, s = 22) => `<svg class="i" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n]}</svg>`;
+const TT = 'M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z';
+const LOGO = {
+  instagram: '<rect width="48" height="48" rx="11" fill="url(#igg)"/><rect x="12.5" y="12.5" width="23" height="23" rx="7" fill="none" stroke="#fff" stroke-width="3"/><circle cx="24" cy="24" r="5.4" fill="none" stroke="#fff" stroke-width="3"/><circle cx="31.2" cy="16.8" r="1.8" fill="#fff"/>',
+  tiktok: `<rect width="48" height="48" rx="11" fill="#010101"/><g transform="translate(10.2 10) scale(1.16)"><path d="${TT}" fill="#25f4ee" transform="translate(-.9 .9)"/><path d="${TT}" fill="#fe2c55" transform="translate(.9 -.9)"/><path d="${TT}" fill="#fff"/></g>`,
+  youtube: '<rect width="48" height="48" rx="11" fill="#fff"/><rect x="8" y="13" width="32" height="22" rx="7" fill="#ff0000"/><path d="M20.5 18.8v10.4l9-5.2z" fill="#fff"/>',
+};
+const logo = (k, s = 44) => `<svg class="logo" width="${s}" height="${s}" viewBox="0 0 48 48" role="img" aria-label="${APPS[k].name}">${LOGO[k]}</svg>`;
+const BIG = {
+  brain: '<g fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M31 15c-2.5-4-9.5-3.5-12 1-4.5.6-7 5-5.5 9-3 2.6-2.4 8 1.6 10-.4 5 4 8.6 8.6 7.4 1.4 2.8 5 3.8 7.3 1.4z"/><path d="M33 15c2.5-4 9.5-3.5 12 1 4.5.6 7 5 5.5 9 3 2.6 2.4 8-1.6 10 .4 5-4 8.6-8.6 7.4-1.4 2.8-5 3.8-7.3 1.4z"/><path d="M22 27c2.6 0 4.6 1.8 4.6 4M42 27c-2.6 0-4.6 1.8-4.6 4M23 40c2.8 0 4-1.4 4-3.4M41 40c-2.8 0-4-1.4-4-3.4"/></g>',
+  ramp: '<g fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10 50h44V16z" fill="currentColor" fill-opacity=".22"/><path d="M18 40l13-8M36 24l8-5M44 19v8"/></g>',
+  phone: '<g fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><rect x="19" y="8" width="26" height="48" rx="6"/><path d="M28 14h8"/><circle cx="32" cy="48" r="2" fill="currentColor"/></g>',
+  heartbreak: '<g fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M32 55C14 42 8 32 8 23a12.5 12.5 0 0 1 22-7.5L32 18l2-2.5A12.5 12.5 0 0 1 56 23c0 9-6 19-24 32z"/><path d="M32 18l-6 10 9 6-6 12"/></g>',
+};
+const bigIco = (n, s = 54) => `<svg width="${s}" height="${s}" viewBox="0 0 64 64" aria-hidden="true">${BIG[n]}</svg>`;
+const PETART = [
+  '<circle cx="32" cy="36" r="20" fill="#f5c542"/><path d="M14 34c-3 1-5 4-4 7 3-1 6-3 7-5z" fill="#e8b02c"/><circle cx="25" cy="31" r="2.6" fill="#1a1a1a"/><circle cx="39" cy="31" r="2.6" fill="#1a1a1a"/><path d="M28 37h8l-4 6z" fill="#f08a24"/><path d="M28 17c0-4 3-6 4-6s4 2 4 6c-2-1-6-1-8 0z" fill="#f5c542"/>',
+  '<path d="M9 12l15 12h16l15-12-2 26c-2 12-12 18-21 18S11 50 9 38z" fill="#e8772e"/><path d="M20 38c4 8 20 8 24 0-3 11-21 11-24 0z" fill="#fff"/><circle cx="24" cy="34" r="2.4" fill="#1a1a1a"/><circle cx="40" cy="34" r="2.4" fill="#1a1a1a"/><ellipse cx="32" cy="43" rx="3.2" ry="2.4" fill="#1a1a1a"/>',
+  '<circle cx="32" cy="34" r="25" fill="#bf8738"/><circle cx="32" cy="35" r="16" fill="#f0c27b"/><circle cx="14" cy="16" r="6" fill="#bf8738"/><circle cx="50" cy="16" r="6" fill="#bf8738"/><circle cx="26" cy="32" r="2.4" fill="#1a1a1a"/><circle cx="38" cy="32" r="2.4" fill="#1a1a1a"/><path d="M28 38h8l-4 4z" fill="#8a4b22"/><path d="M32 42v4M27 47c3 2 7 2 10 0" stroke="#8a4b22" stroke-width="2" fill="none" stroke-linecap="round"/>',
+  '<path d="M14 24 8 8l14 6M50 24l6-16-14 6" fill="#2b8a5c"/><circle cx="32" cy="35" r="21" fill="#3fae7a"/><path d="M20 22l-2-9 8 5M44 22l2-9-8 5" fill="#f2d16b"/><circle cx="24" cy="30" r="3.4" fill="#fbe36b"/><circle cx="40" cy="30" r="3.4" fill="#fbe36b"/><rect x="23" y="28" width="2" height="5" rx="1" fill="#1a1a1a"/><rect x="39" y="28" width="2" height="5" rx="1" fill="#1a1a1a"/><ellipse cx="32" cy="44" rx="10" ry="7" fill="#7ad0a0"/><circle cx="28" cy="43" r="1.5" fill="#1f6b47"/><circle cx="36" cy="43" r="1.5" fill="#1f6b47"/>',
+];
+const petArt = (i, s = 72) => `<svg width="${s}" height="${s}" viewBox="0 0 64 64" role="img" aria-label="${PET[i][1]}">${PETART[i]}</svg>`;
+
+// ---------- config handed to the Safari blocker ----------
+function exportConfig() {
+  const apps = {};
+  for (const k of KEYS) {
+    const a = S.apps[k];
+    apps[k] = { mode: a.on ? a.mode : 'off', start: a.start, end: a.end, days: a.days, blockAll: a.blockAll, whole: !!a.whole, targets: a.targets, unlockUntil: S.override[k] || 0, lookupUntil: S.lookup[k] || 0, track: S.settings.track, back: IS_STANDALONE ? '' : location.origin + location.pathname };
+  }
+  return JSON.stringify({ v: 1, apps });
+}
 
 // ---------- Microsoft To Do (Graph, OAuth PKCE) ----------
 const redirect = () => location.origin + location.pathname;
 const b64u = b => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 async function msLogin() {
-  if (!S.ms.clientId) return alert('Enter your Azure app Client ID first (see setup note).');
+  if (!S.ms.clientId) return alert('Enter your Azure app Client ID first.');
   const ver = b64u(crypto.getRandomValues(new Uint8Array(32)));
   const chal = b64u(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(ver)));
   sessionStorage.setItem('sg.ver', ver); save();
@@ -169,12 +248,12 @@ async function graph(path, opt = {}) {
   if (!r.ok) throw new Error('Graph ' + r.status); return r.status === 204 ? null : r.json();
 }
 async function msSync() {
-  if (!msOk()) return alert('Session expired – sign in again.');
+  if (!msOk()) return alert('Your Microsoft session expired. Connect again.');
   try {
     const lists = (await graph('/me/todo/lists')).value;
-    const def = lists.find(l => l.wellknownListName === 'defaultList') || lists[0];
-    const ts = (await graph(`/me/todo/lists/${def.id}/tasks?$top=100`)).value;
-    S.tasks = S.tasks.filter(t => !t.ms).concat(ts.map(t => ({ id: 'ms' + t.id, text: t.title, done: t.status === 'completed', ms: { list: def.id, id: t.id } })));
+    const dl = lists.find(l => l.wellknownListName === 'defaultList') || lists[0];
+    const ts = (await graph(`/me/todo/lists/${dl.id}/tasks?$top=100`)).value;
+    S.tasks = S.tasks.filter(t => !t.ms).concat(ts.map(t => ({ id: 'ms' + t.id, text: t.title, done: t.status === 'completed', ms: { list: dl.id, id: t.id } })));
     save(); render();
   } catch (e) { alert('Sync failed: ' + e.message); }
 }
@@ -183,166 +262,188 @@ async function toggleTask(id) {
   if (t.ms && msOk()) try { await graph(`/me/todo/lists/${t.ms.list}/tasks/${t.ms.id}`, { method: 'PATCH', body: JSON.stringify({ status: t.done ? 'completed' : 'notStarted' }) }); } catch {}
 }
 
-// ---------- views ----------
-const $ = s => document.querySelector(s);
-const TABS = [['home', '🏠', 'Home'], ['block', '🛡️', 'Limits'], ['learn', '🧠', 'Learn'], ['tasks', '✅', 'Tasks'], ['social', '🏆', 'Rewards']];
-function render() {
-  $('#nav').innerHTML = TABS.map(([k, i, l]) => `<button class="${S.tab === k ? 'on' : ''}" data-tab="${k}">${i}<br>${l}</button>`).join('');
-  $('#app').innerHTML = gate ? vGate() : { home: vHome, block: vBlock, learn: vLearn, tasks: vTasks, social: vSocial }[S.tab]();
-  if (S.tab === 'learn' && !gate) initLearn();
+// ---------- shared view pieces ----------
+const sw = (attrs, on) => `<input type="checkbox" class="sw" ${attrs} ${on ? 'checked' : ''}>`;
+const head = (title, right) => `<header class="top"><h1>${title}</h1>${right ?? `<button class="icon-btn" data-a="tab" data-v="settings" aria-label="Settings">${ico('gear')}</button>`}</header>`;
+const trow = (label, sub, ctl) => `<label class="row"><span class="lbl"><b>${label}</b>${sub ? `<span class="sub">${sub}</span>` : ''}</span>${ctl}</label>`;
+const seg = (key, opts, cur) => `<div class="seg" role="group">${opts.map(([v, l]) => `<button data-a="seg" data-k="${key}" data-v="${v}" class="${cur === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+
+// ---------- welcome / login ----------
+function vWelcome() {
+  return `<form class="welcome" data-form="signup" autocomplete="on">
+    <div class="mark"><svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I.shield}</svg></div>
+    <div><h1>Hello, welcome to ScrollGuard.</h1><p class="lead" style="margin-top:8px">Set up your profile to get started.</p></div>
+    <div class="fields">
+      <input class="field" id="w-name" placeholder="Name" autocomplete="given-name" autocapitalize="words" required>
+      <input class="field" id="w-email" type="email" placeholder="Email" autocomplete="email" required>
+      <input class="field" id="w-pw" type="password" placeholder="Password (6 or more characters)" autocomplete="new-password" required>
+    </div>
+    <div class="err" id="err"></div>
+    <button class="btn primary block" type="submit">Create profile</button>
+    <p class="fine">Your details stay on this iPhone. They are not sent to any server, so they can't be recovered if you forget your password.</p>
+  </form>`;
 }
-// ---------- gate (opened by an iOS Shortcuts automation when a native app launches) ----------
-let gate = null;
-function readGate() {
-  const m = location.hash.match(/gate=([a-z]+)/); if (!m) return;
-  history.replaceState(null, '', location.pathname + location.search);
-  if (APPS[m[1]]) gate = m[1];
+function vLogin() {
+  return `<form class="welcome" data-form="login">
+    <div class="mark"><svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I.lock}</svg></div>
+    <div><h1>Welcome back, ${esc(S.account.name)}</h1><p class="lead" style="margin-top:8px">Enter your password to continue.</p></div>
+    <div class="fields"><input class="field" id="l-pw" type="password" placeholder="Password" autocomplete="current-password" required></div>
+    <div class="err" id="err"></div>
+    <button class="btn primary block" type="submit">Unlock</button>
+    <button class="link" type="button" data-a="reset">Forgot password? Reset the app</button>
+  </form>`;
 }
-const gateUrl = k => location.origin + location.pathname + '#gate=' + k;
-function vGate() {
-  const k = gate, A = APPS[k], st = status(k), left = S.tasks.filter(t => !t.done);
-  if (!st.active) return `<h1>${A.icon} ${A.name}</h1><div class="card" style="text-align:center"><div class="big">✅</div><p>${st.overridden ? 'Unlocked for now.' : 'Not locked right now.'}</p>
-    <div class="row" style="justify-content:center"><button class="p" data-gateopen="${k}">Open ${A.name}</button><button data-gateclose>Not now</button></div></div>`;
-  const can = !S.settings.requireTasks || allDone();
-  return `<h1>${A.icon} ${A.name}</h1><div class="card" style="text-align:center"><div class="big">🔒</div><p><b>${A.name} is locked</b><br><span class="mu">${st.full ? 'Blocked entirely.' : esc(st.reason || '')}</span></p>
-    ${S.settings.requireTasks && left.length ? `<div class="mu" style="text-align:left">Finish first:</div>${left.map(t => `<div class="task"><input type="checkbox" data-toggle="${t.id}"><span>${esc(t.text)}</span></div>`).join('')}` : ''}
-    <div class="row" style="justify-content:center">${st.full ? '' : `<button data-unlock="${k}" ${can ? '' : 'disabled'}>${S.settings.requireTasks ? (can ? 'Tasks done – unlock' : 'Finish tasks to unlock') : 'Unlock early'}</button>`}<button class="p" data-gateclose>Stay focused</button></div></div>`;
+
+// ---------- home ----------
+function blurb(t) {
+  const [a, b, c] = t;
+  if (!a && !b && !c) return 'Nothing logged yet. Time appears here after you open an app from ScrollGuard.';
+  let s = '';
+  if (b > 0 && c > 0) {
+    const p = Math.round(Math.abs(b - c) / c * 100);
+    s = p < 8 ? 'Yesterday matched the day before.' : b < c ? `Yesterday was ${p}% lower than the day before. Keep it going.` : `Yesterday ran ${p}% higher than the day before. Today is a fresh start.`;
+  } else if (b > 0) s = `Yesterday you logged ${fmt(b)}.`;
+  const ig = used(dayKey()), g = S.settings.threshold;
+  const tail = ig > g ? `You are over your ${fmt(g)} Instagram goal today.` : a ? `You are within your ${fmt(g)} Instagram goal today.` : '';
+  return (s + ' ' + tail).trim();
 }
 function vHome() {
-  const cards = Object.keys(APPS).filter(k => S.apps[k].on).map(k => {
-    const st = status(k), a = APPS[k];
-    const tag = st.active ? `<span class="tag on">${st.full ? 'Blocked' : st.whole ? 'App blocked' : 'Feed locked'}</span>` : `<span class="tag free">${st.overridden ? 'Unlocked' : 'Free'}</span>`;
-    const canUnlock = st.active && !st.full;
-    const ul = S.settings.requireTasks ? (allDone() ? 'All tasks done – unlock' : 'Finish tasks to unlock') : 'Unlock early';
-    return `<div class="card"><div class="row"><b>${a.icon} ${a.name}</b>${tag}</div>
-      <div class="mu">${st.active ? (st.full ? 'Blocked until you turn it off in Limits.' : st.whole ? `Whole app blocked (${st.reason}). Finish your tasks to unlock.` : `Locked (${st.reason}). Opening goes to messages${k === 'youtube' ? '/subscriptions' : ''} only.`) : 'No restriction right now.'}</div>
-      <div class="row"><button class="p" ${st.full || st.whole ? 'disabled' : ''} data-launch="${k}">Open ${st.whole ? a.name : st.active ? (k === 'youtube' ? 'subscriptions' : 'messages') : a.name}</button>
-      ${canUnlock ? `<button data-unlock="${k}" ${S.settings.requireTasks && !allDone() ? 'disabled' : ''}>${ul}</button>` : ''}</div>
-      ${canUnlock && S.settings.lookup ? `<div class="row"><input id="h-${k}" placeholder="🔎 @handle to look up" style="flex:1;min-width:140px"><button data-go="${k}">Profile</button><button data-lookup="${k}">Search 10 min</button></div>` : ''}</div>`;
-  }).join('') || '<div class="card mu">No services enabled. Turn them on in Limits.</div>';
-  const p = S.pending ? `<div class="card"><div class="row"><span>⏱ ${APPS[S.pending.app].name} session running…</span><button class="p" data-end>I'm back</button></div><div class="mu">Time is added automatically when you return to this tab.</div></div>` : '';
-  const warn = IS_STANDALONE && !S.settings.safariHandoff ? `<div class="card"><b>⚠️ Blocking won't work from this icon</b><div class="mu">Home Screen web-app mode opens Instagram in a built-in browser where Safari extensions don't run, and it keeps separate logins. Fix: turn on \"Hand off to Safari\" in Limits (experimental), or re-add this icon from Safari with \"Open as Web App\" OFF.</div></div>` : '';
-  return `<h1>ScrollGuard</h1>${warn}${p}${cards}${vStats()}`;
+  const rows = KEYS.filter(k => S.apps[k].on).map(k => {
+    const st = status(k);
+    const sub = st.full ? 'Blocked' : st.active ? (st.whole ? 'Blocked right now' : 'Restricted') : st.overridden ? 'Unlocked for now' : 'No restrictions';
+    return `<button class="approw" data-a="sheet" data-k="${k}">${logo(k)}<span class="lbl"><b>${APPS[k].name}</b><span class="sub">${sub}</span></span>${st.active ? `<span class="lock-ic" aria-label="Restricted">${ico('lock', 20)}</span>` : ''}<span class="chev">${ico('chev', 18)}</span></button>`;
+  }).join('');
+  const d = new Date(), tot = [];
+  const labels = ['Today', 'Yesterday'];
+  for (let i = 0; i < 3; i++) { tot.push(dayTotal(dayKey(d))); if (i > 1) labels.push(DAYNAMES[d.getDay()]); d.setDate(d.getDate() - 1); }
+  const max = Math.max(...tot, 1);
+  const pend = S.pending ? `<div class="banner"><span class="lbl"><b>Timing ${APPS[S.pending.app].name}</b><span class="sub">Stops when you return here.</span></span><button class="btn primary sm" data-a="end">I'm back</button></div>` : '';
+  return `${head(`${esc(greet)}, ${esc(S.account.name)}`)}${pend}
+  <div class="section-t">Apps</div>
+  <div class="group">${rows || '<div class="pad sub">No apps are managed. Turn them on in Limits.</div>'}</div>
+  ${S.settings.track ? `<div class="section-t">Last 3 days</div><div class="group"><div class="days3">${tot.map((m, i) => `<div class="d3"><div class="bar"><i style="height:${Math.max(4, Math.round(m / max * 56))}px"></i></div><div class="v">${fmt(m)}</div><div class="l">${labels[i]}</div></div>`).join('')}</div><p class="blurb">${blurb(tot)}</p></div>` : ''}`;
 }
-const resolveApp = v => { const k = v.trim().toLowerCase(); return APPS[k] ? k : (v.trim() || 'Other'); };
-const label = n => APPS[n] ? APPS[n].icon + ' ' + APPS[n].name : '📱 ' + n;
-function vStats() {
-  if (!S.settings.track) return '';
-  const tot = {}, today = {}, perDay = [], d = new Date();
-  for (let i = 0; i < 7; i++) {
-    let sum = 0;
-    for (const [n, m] of Object.entries(S.usage[dayKey(d)] || {})) { tot[n] = (tot[n] || 0) + m; sum += m; if (!i) today[n] = m; }
-    perDay.push([DAYS[d.getDay()], sum]); d.setDate(d.getDate() - 1);
-  }
-  const names = Object.keys(tot).sort((a, b) => tot[b] - tot[a]), max = Math.max(1, ...perDay.map(p => p[1]));
-  const all = names.reduce((t, n) => t + (today[n] || 0), 0);
-  return `<div class="card"><h2>Screen time</h2><div class="big">${fmt(all)}</div><div class="mu">today · ${fmt(Object.values(tot).reduce((a, b) => a + b, 0))} this week</div>
-  <div class="row" style="align-items:flex-end;height:70px;gap:6px">${perDay.reverse().map(([l, m]) => `<div style="flex:1;text-align:center"><div style="height:${Math.round(m / max * 50)}px;min-height:2px;background:var(--ac);border-radius:4px"></div><small class="mu">${l}</small></div>`).join('')}</div>
-  ${names.map(n => `<div class="row"><span>${esc(label(n))}</span><span class="mu">${fmt(today[n] || 0)} today · ${fmt(tot[n])} week</span></div>`).join('') || '<div class="mu">Nothing logged yet.</div>'}
-  <div class="row"><input id="manApp" list="apps" placeholder="App (e.g. YouTube, Snapchat)" style="flex:1;min-width:120px"><datalist id="apps">${[...Object.keys(APPS), ...names.filter(n => !APPS[n])].map(n => `<option value="${esc(n)}">`).join('')}</datalist><input id="manMin" type="number" placeholder="min" style="width:80px"><button data-manual>Add</button></div>
-  <div class="note">iOS doesn't let web apps read Screen Time. This counts sessions started from ScrollGuard plus what you enter by hand. Tip: once a week, copy your numbers from Settings → Screen Time.</div></div>`;
+
+// ---------- app sheet (full page) ----------
+function vSheet() {
+  const k = sheet, A = APPS[k], st = status(k), al = allowed(k, st);
+  const left = S.tasks.filter(t => !t.done).length, can = !S.settings.requireTasks || allDone();
+  let lead, primary = '';
+  if (st.full) lead = `${A.name} is blocked completely. Turn that off in Limits to open it.`;
+  else if (!st.active) { lead = st.overridden ? 'It is unlocked for now.' : 'There are no restrictions right now.'; primary = `<button class="btn primary block" data-a="openapp" data-k="${k}" data-full="1">Open ${A.name}</button>`; }
+  else { lead = `Right now you can only <b>${al.phrase}</b>.`; if (al.btn) primary = `<button class="btn primary block" data-a="openapp" data-k="${k}" data-full="0">${al.btn}</button>`; }
+  const quick = st.active && !st.full && S.settings.lookup ? `<div class="section-t" style="margin:10px 4px 0">Quick access</div>
+    <div class="group"><div class="pad fields"><input class="field" id="h-handle" placeholder="@handle" autocapitalize="none" autocorrect="off" spellcheck="false"></div>
+    <div class="pad" style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><button class="btn" data-a="go" data-k="${k}">Profile</button><button class="btn" data-a="search" data-k="${k}">Search 10 min</button></div></div>
+    <p class="hint">Search opens the whole site for 10 minutes while feeds stay hidden.</p>` : '';
+  const unl = st.active && !st.full ? `<div class="group"><div class="row"><span class="lbl"><b>Unlock ${A.name}</b><span class="sub">${S.settings.requireTasks ? (can ? 'All tasks are done.' : `Finish ${left} task${left === 1 ? '' : 's'} first.`) : 'Your tasks are not required.'}</span></span><button class="btn sm" data-a="unlock" data-k="${k}" ${can ? '' : 'disabled'}>Unlock</button></div></div>` : '';
+  return `<div class="sheet" role="dialog" aria-modal="true"><div class="sheet-in">
+    <div><button class="icon-btn" data-a="close" aria-label="Close">${ico('close')}</button></div>
+    <div class="mark">${logo(k, 84)}</div>
+    <h1>You are attempting to open ${A.name}</h1><p class="lead">${lead}</p>
+    ${primary}${quick}${unl}</div></div>`;
 }
-function vBlock() {
+
+// ---------- limits ----------
+function vLimits() {
   const one = k => {
-    const a = S.apps[k], A = APPS[k];
-    const sw = `<div class="row"><b>${A.icon} ${A.name}</b><input type="checkbox" ${a.on ? 'checked' : ''} data-f="${k}.on"></div>`;
-    if (!a.on) return `<div class="card">${sw}<div class="mu">Not managed by ScrollGuard.</div></div>`;
-    return `<div class="card">${sw}
-    <div class="row"><span>Lock</span><select data-f="${k}.mode"><option value="off" ${a.mode === 'off' ? 'selected' : ''}>Off</option><option value="schedule" ${a.mode === 'schedule' ? 'selected' : ''}>During set times</option><option value="always" ${a.mode === 'always' ? 'selected' : ''}>Always</option></select></div>
-    ${a.mode === 'schedule' ? `<div class="row"><span>From</span><input type="time" value="${a.start}" data-f="${k}.start"><span>to</span><input type="time" value="${a.end}" data-f="${k}.end"></div>
-    <div class="row days">${DAYS.map((d, i) => `<button class="${a.days.includes(i) ? 'on' : ''}" data-day="${k}.${i}">${d}</button>`).join('')}</div>
-    <div class="mu">Overnight works too (e.g. 22:00 → 07:00).</div>` : ''}
-    ${a.mode !== 'off' ? `<div class="mu" style="margin-top:8px">What to block while locked:</div>${TARGETS[k].map(([t, l]) => `<label class="row"><span>${l}</span><input type="checkbox" ${a.targets[t] ? 'checked' : ''} data-t="${k}.${t}"></label>`).join('')}` : ''}
-    ${a.mode !== 'off' ? `<label class="row"><span>Block the whole app while locked<br><small class="mu">Instead of hiding feeds. Quick lookup still works.</small></span><input type="checkbox" ${a.whole ? 'checked' : ''} data-f="${k}.whole"></label>` : ''}
-    <div class="row"><span>Block ${A.name} completely</span><input type="checkbox" ${a.blockAll ? 'checked' : ''} data-f="${k}.blockAll"></div></div>`;
+    const a = S.apps[k];
+    const head_ = `<div class="row"><span style="display:flex;align-items:center;gap:12px">${logo(k, 34)}<b style="font-size:17px;font-weight:600">${APPS[k].name}</b></span>${sw(`data-f="${k}.on"`, a.on)}</div>`;
+    if (!a.on) return `<div class="group">${head_}</div>`;
+    const sched = a.mode === 'schedule' ? `
+      <div class="row"><span class="lbl"><b>Starts</b></span><input class="field" type="time" value="${a.start}" data-f="${k}.start"></div>
+      <div class="row"><span class="lbl"><b>Ends</b></span><input class="field" type="time" value="${a.end}" data-f="${k}.end"></div>
+      <div class="pad days">${DAYS.map((d, i) => `<button data-a="day" data-k="${k}.${i}" class="${a.days.includes(i) ? 'on' : ''}" aria-label="${DAYNAMES[i]}">${d}</button>`).join('')}</div>` : '';
+    const rest = a.mode !== 'off' ? `
+      ${trow('Block the whole app', 'Instead of hiding feeds.', sw(`data-f="${k}.whole"`, a.whole))}
+      ${TARGETS[k].map(([t, l]) => trow(l, '', sw(`data-t="${k}.${t}"`, a.targets[t]))).join('')}` : '';
+    return `<div class="group">${head_}
+      <div class="pad">${seg(`${k}.mode`, [['off', 'Off'], ['schedule', 'Scheduled'], ['always', 'Always']], a.mode)}</div>${sched}${rest}
+      ${trow(`Block ${APPS[k].name} completely`, 'Nothing opens until you turn this off.', sw(`data-f="${k}.blockAll"`, a.blockAll))}</div>`;
   };
-  return `<h1>Limits</h1>${Object.keys(APPS).map(one).join('')}
-  <div class="card"><h2>Features</h2>
-  <label class="row"><span>Tasks required to unlock early<br><small class="mu">Off = you can unlock any time (with a confirm)</small></span><input type="checkbox" ${S.settings.requireTasks ? 'checked' : ''} data-s="requireTasks"></label>
-  <label class="row"><span>Quick lookup (profile / search for 10 min)</span><input type="checkbox" ${S.settings.lookup ? 'checked' : ''} data-s="lookup"></label>
-  <label class="row"><span>Hand off to Safari<br><small class="mu">For Home Screen web-app mode. Experimental.</small></span><input type="checkbox" ${S.settings.safariHandoff ? 'checked' : ''} data-s="safariHandoff"></label>
-  <label class="row"><span>Track time spent scrolling</span><input type="checkbox" ${S.settings.track ? 'checked' : ''} data-s="track"></label>
-  <div class="row"><span>Daily Instagram goal (min)</span><input type="number" style="width:90px" value="${S.settings.threshold}" data-s="threshold"></div></div>
-  <div class="card"><h2>App gate (for the real Instagram / TikTok / YouTube apps)</h2><div class="mu">A web app can't block an installed app, but it can stop you at the door. Copy a link, then in the Shortcuts app: Automation → New → App → pick the app → Is Opened → Open URL → paste the link → turn off "Ask Before Running". Opening the app then pops ScrollGuard's lock screen first.</div>
-  ${Object.keys(APPS).map(k => `<div class="row"><span>${APPS[k].icon} ${APPS[k].name}</span><button data-copygate="${k}">Copy link</button></div>`).join('')}</div>
-  <div class="card"><h2>Blocker sync</h2><div class="mu">Launching from ScrollGuard sends your current limits to the Safari userscript automatically. For the desktop extension, copy the config and paste it into its popup.</div>
-  <div class="row"><button data-export>Copy blocker config</button></div></div>`;
+  return `${head('Limits')}
+  ${KEYS.map(one).join('')}
+  <div class="section-t">Features</div>
+  <div class="group">
+    ${trow('Tasks unlock apps', 'Off lets you unlock early with a confirm.', sw('data-s="requireTasks"', S.settings.requireTasks))}
+    ${trow('Quick access', 'Profile lookup and 10 minute search.', sw('data-s="lookup"', S.settings.lookup))}
+    ${trow('Track screen time', '', sw('data-s="track"', S.settings.track))}
+    ${trow('Hand off to Safari', 'For Home Screen web-app mode. Experimental.', sw('data-s="safariHandoff"', S.settings.safariHandoff))}
+    <div class="row"><span class="lbl"><b>Daily Instagram goal</b><span class="sub">Minutes. Used for your streak.</span></span><input class="field" type="number" inputmode="numeric" style="width:84px;text-align:center" value="${S.settings.threshold}" data-s="threshold"></div>
+  </div>
+  <div class="section-t">Installed apps</div>
+  <div class="group">
+    <div class="pad sub">A web app can't block an installed app, but it can stop you at the door. In Shortcuts: Automation, New, App, choose the app, Is Opened, Open URL, paste the link, then turn off Ask Before Running.</div>
+    ${KEYS.map(k => `<div class="row"><span style="display:flex;align-items:center;gap:12px">${logo(k, 30)}<b style="font-weight:500">${APPS[k].name}</b></span><button class="btn sm" data-a="copygate" data-k="${k}">Copy link</button></div>`).join('')}
+  </div>
+  <div class="section-t">Blocker</div>
+  <div class="group"><div class="pad sub">Opening an app from ScrollGuard sends your limits to the Safari blocker. For the desktop extension, copy the config and paste it into its popup.</div>
+  <div class="pad"><button class="btn block" data-a="exportcfg">Copy blocker config</button></div></div>`;
 }
+
+// ---------- tasks ----------
 function vTasks() {
-  const ms = S.ms;
-  return `<h1>Tasks</h1><div class="card"><div class="mu">Finish every task to unlock your restricted apps for the rest of the current window.</div>
-  <div class="row"><input id="newTask" placeholder="Add a task…" style="flex:1"><button class="p" data-addtask>Add</button></div>
-  ${S.tasks.map(t => `<div class="task ${t.done ? 'done' : ''}"><input type="checkbox" ${t.done ? 'checked' : ''} data-toggle="${t.id}"><span>${esc(t.text)}${t.ms ? ' <small class="mu">· MS To Do</small>' : ''}</span><button class="d" data-deltask="${t.id}">✕</button></div>`).join('') || '<div class="mu">No tasks yet.</div>'}
-  <div class="row"><span class="tag ${allDone() ? 'free' : ''}">${allDone() ? 'All done 🎉' : S.tasks.filter(t => !t.done).length + ' remaining'}</span><button data-clear>Clear completed</button></div></div>
-  <div class="card"><h2>Microsoft To Do</h2>
-  <input placeholder="Azure app Client ID" value="${esc(ms.clientId)}" data-ms="clientId">
-  <div class="row">${msOk() ? '<button class="p" data-mssync>Sync now</button><span class="tag free">Connected</span>' : '<button class="p" data-mslogin>Connect</button>'}</div>
-  <div class="note">One-time setup: register a free app at entra.microsoft.com → App registrations → "Single-page application" redirect URI <code>${esc(redirect())}</code>, permission Tasks.ReadWrite, then paste its Client ID.</div></div>
-  <div class="card"><h2>Apple Reminders</h2><div class="mu">Apple has no web API for Reminders. In Reminders, select tasks → copy → paste here (one per line):</div>
-  <textarea id="paste" placeholder="Buy milk&#10;Email professor"></textarea><div class="row"><button data-import>Import</button></div></div>`;
-}
-function vSocial() {
-  const s = streak(), pet = petFor(s), next = PET.find(p => p[0] > s);
-  const bs = earned().map(b => b[1]);
-  return `<h1>Rewards</h1>
-  <div class="card"><div class="pet">${pet[1]}</div><div style="text-align:center"><b>${pet[2]}</b> · ${s}-day streak</div>
-  <div class="mu" style="text-align:center">Streak = days at or under ${S.settings.threshold} min on Instagram.${next ? ` ${next[0] - s} more day(s) to evolve.` : ' Max level!'}</div>
-  ${next ? `<div class="bar" style="margin-top:8px"><i style="width:${Math.min(100, (s - pet[0]) / (next[0] - pet[0]) * 100)}%"></i></div>` : ''}</div>
-  <div class="card"><h2>Badges</h2>${BADGES.map(b => `<span class="badge ${bs.includes(b[1]) ? '' : 'off'}" title="${b[2]}">${b[0]} ${b[1]}</span>`).join('')}</div>`;
+  const ms = S.ms, left = S.tasks.filter(t => !t.done).length;
+  return `${head('Tasks')}
+  <p class="hint" style="padding-top:0">Finish every task to unlock your restricted apps for the rest of the lock window.</p>
+  <div class="group">
+    <div class="pad" style="display:flex;gap:10px"><input class="field" id="newTask" placeholder="Add a task" enterkeyhint="done"><button class="btn primary" data-a="addtask">Add</button></div>
+    ${S.tasks.map(t => `<div class="task ${t.done ? 'done' : ''}"><input type="checkbox" class="ck" ${t.done ? 'checked' : ''} data-toggle="${t.id}" aria-label="Done"><span class="t">${esc(t.text)}${t.ms ? '<span class="sub">Microsoft To Do</span>' : ''}</span><button class="x" data-a="deltask" data-v="${t.id}" aria-label="Delete">${ico('trash', 20)}</button></div>`).join('') || '<div class="pad sub">No tasks yet.</div>'}
+    <div class="row"><span class="sub" style="margin:0">${S.tasks.length ? (left ? `${left} remaining` : 'All done') : ''}</span><button class="link" data-a="cleartasks">Clear completed</button></div>
+  </div>
+  <div class="section-t">Microsoft To Do</div>
+  <div class="group"><div class="pad fields"><input class="field" placeholder="Azure app Client ID" value="${esc(ms.clientId)}" data-ms="clientId" autocapitalize="none" autocorrect="off" spellcheck="false">
+    ${msOk() ? '<button class="btn primary" data-a="mssync">Sync now</button>' : '<button class="btn primary" data-a="mslogin">Connect</button>'}</div>
+    <div class="pad sub">One-time setup: register a free app at entra.microsoft.com with a Single-page application redirect of <span style="overflow-wrap:anywhere">${esc(redirect())}</span> and the Tasks.ReadWrite permission. Paste its Client ID above.</div></div>
+  <div class="section-t">Apple Reminders</div>
+  <div class="group"><div class="pad sub">Apple has no web access to Reminders. Copy tasks from Reminders and paste them here, one per line.</div>
+    <div class="pad fields"><textarea class="field" id="paste" placeholder="Buy milk&#10;Email professor"></textarea><button class="btn" data-a="import">Import</button></div></div>`;
 }
 
-// ---------- extension config ----------
-function exportConfig() {
-  const apps = {};
-  for (const k of Object.keys(APPS)) { const a = S.apps[k]; apps[k] = { mode: a.on ? a.mode : 'off', start: a.start, end: a.end, days: a.days, blockAll: a.blockAll, whole: !!a.whole, targets: a.targets, unlockUntil: S.override[k] || 0, lookupUntil: S.lookup[k] || 0, track: S.settings.track, back: IS_STANDALONE ? '' : location.origin + location.pathname }; }
-  return JSON.stringify({ v: 1, apps });
-}
-
-// ---------- educational scroll ----------
-// Facts come from Wikipedia's free public API (no key). Optional YouTube Shorts embeds use the
-// official YouTube Data API with the user's own free key and the official embed player.
+// ---------- learn ----------
 const L = { busy: false, ytCache: {}, n: 0 };
 function vLearn() {
   const l = S.learn;
-  if (!l.on) return `<h1>Learn</h1><div class="card"><div class="mu">Swap mindless scrolling for something useful: pick topics and scroll through facts.</div><div class="row"><span>Enable Educational Scroll</span><input type="checkbox" data-l="on"></div></div>`;
-  return `<h1>Learn</h1><div class="card"><div class="row"><span>Educational Scroll</span><input type="checkbox" checked data-l="on"></div>
-  <div class="row"><input id="topic" placeholder="Add a topic (space, chess, Roman history…)" style="flex:1"><button class="p" data-addtopic>Add</button></div>
-  <div>${l.topics.map((t, i) => `<span class="badge">${esc(t)} <a href="#" data-rmtopic="${i}" onclick="return false" style="color:var(--bad)">✕</a></span>`).join('') || '<span class="mu">No topics yet.</span>'}</div>
-  <div class="mu" style="margin-top:8px">Sources</div>
-  <label class="row"><span>📚 Wikipedia facts</span><input type="checkbox" ${l.src.wiki ? 'checked' : ''} data-ls="wiki"></label>
-  <label class="row"><span>📰 Tech &amp; science news (Hacker News)</span><input type="checkbox" ${l.src.hn ? 'checked' : ''} data-ls="hn"></label>
-  <details class="mu" style="margin-top:8px"><summary>Short video clips (optional)</summary>
-  <div class="row"><span>Mix in YouTube Shorts</span><input type="checkbox" ${l.ytOn ? 'checked' : ''} data-l="ytOn"></div>
-  <input placeholder="Your free YouTube Data API key" value="${esc(l.ytKey)}" data-l="ytKey">
-  <div class="note">Get a key free at console.cloud.google.com (enable YouTube Data API v3; ~100 searches/day free). Videos play in YouTube's official embedded player.</div></details></div>
-  <div id="feed">${l.topics.length ? '' : ''}</div><div id="sentinel" class="mu" style="text-align:center;padding:20px">${l.topics.length ? 'Loading…' : 'Add a topic to begin.'}</div>`;
+  if (!l.on) return `${head('Learn')}<div class="group">${trow('Educational Scroll', 'Pick topics you like and scroll through facts and news instead.', sw('data-l="on"', false))}</div>`;
+  return `${head('Learn')}
+  <div class="group">
+    ${trow('Educational Scroll', '', sw('data-l="on"', true))}
+    <div class="pad" style="display:flex;gap:10px"><input class="field" id="topic" placeholder="Add a topic" enterkeyhint="done"><button class="btn primary" data-a="addtopic">Add</button></div>
+    <div class="pills" style="padding-top:12px">${l.topics.map((t, i) => `<span class="pill">${esc(t)}<button class="x" data-a="rmtopic" data-v="${i}" aria-label="Remove ${esc(t)}">${ico('close', 16)}</button></span>`).join('') || '<span class="sub">No topics yet. Try space, chess or Roman history.</span>'}</div>
+  </div>
+  <div class="section-t">Sources</div>
+  <div class="group">
+    ${trow('Wikipedia facts', '', sw('data-ls="wiki"', l.src.wiki))}
+    ${trow('Tech and science news', 'From Hacker News.', sw('data-ls="hn"', l.src.hn))}
+    ${trow('YouTube Shorts', 'Needs a free YouTube Data API key.', sw('data-l="ytOn"', l.ytOn))}
+    ${l.ytOn ? `<div class="pad fields"><input class="field" placeholder="YouTube Data API key" value="${esc(l.ytKey)}" data-l="ytKey" autocapitalize="none" autocorrect="off" spellcheck="false"><span class="sub">Create a free key at console.cloud.google.com. Videos play in YouTube's own player.</span></div>` : ''}
+  </div>
+  <div id="feed" style="margin-top:18px"></div><div id="sentinel" class="center">${l.topics.length ? 'Loading' : 'Add a topic to begin.'}</div>`;
 }
 function initLearn() {
   if (!S.learn.on || !S.learn.topics.length) return;
-  const io = new IntersectionObserver(es => { if (es[0].isIntersecting) moreCards(); }, { rootMargin: '600px' });
-  io.observe($('#sentinel'));
+  new IntersectionObserver(es => { if (es[0].isIntersecting) moreCards(); }, { rootMargin: '600px' }).observe($('#sentinel'));
 }
-const pick = a => a[Math.floor(Math.random() * a.length)];
 async function wikiCard(topic) {
   const u = 'https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*&generator=search&gsrlimit=25&prop=extracts|pageimages|info&inprop=url&exintro=1&explaintext=1&exsentences=3&piprop=thumbnail&pithumbsize=700&gsrsearch=' + encodeURIComponent(topic);
   const pages = Object.values((await (await fetch(u)).json()).query?.pages || {}).filter(p => p.extract && p.extract.length > 80);
   const p = pick(pages); if (!p) return null;
-  return `<div class="card"><div class="mu">🧠 ${esc(topic)}</div><h3 style="margin:6px 0">${esc(p.title)}</h3>${p.thumbnail ? `<img src="${esc(p.thumbnail.source)}" alt="" style="width:100%;border-radius:10px;max-height:260px;object-fit:cover">` : ''}<p>${esc(p.extract)}</p><a class="mu" target="_blank" rel="noopener" href="${esc(p.fullurl)}">Read more ↗</a></div>`;
+  return `<div class="card"><div class="kicker">${ico('book', 16)}${esc(topic)}</div><h3>${esc(p.title)}</h3>${p.thumbnail ? `<img src="${esc(p.thumbnail.source)}" alt="">` : ''}<p>${esc(p.extract)}</p><a target="_blank" rel="noopener" href="${esc(p.fullurl)}">Read more</a></div>`;
 }
 async function hnCard(topic) {
   const r = await (await fetch('https://hn.algolia.com/api/v1/search?tags=story&hitsPerPage=20&query=' + encodeURIComponent(topic))).json();
   const h = pick((r.hits || []).filter(x => x.title)); if (!h) return null;
   const link = /^https?:/.test(h.url || '') ? h.url : 'https://news.ycombinator.com/item?id=' + encodeURIComponent(h.objectID);
-  return `<div class="card"><div class="mu">📰 ${esc(topic)} · Hacker News</div><h3 style="margin:6px 0">${esc(h.title)}</h3><div class="mu">▲ ${h.points || 0} · 💬 ${h.num_comments || 0}</div><a class="mu" target="_blank" rel="noopener" href="${esc(link)}">Read ↗</a></div>`;
+  return `<div class="card"><div class="kicker">${ico('news', 16)}${esc(topic)}</div><h3>${esc(h.title)}</h3><p style="color:var(--mu);font-size:14px">${h.points || 0} points, ${h.num_comments || 0} comments</p><a target="_blank" rel="noopener" href="${esc(link)}">Read</a></div>`;
 }
 async function ytCard(topic) {
-  const S_ = S.learn; if (!S_.ytOn || !S_.ytKey) return null;
+  const l = S.learn; if (!l.ytOn || !l.ytKey) return null;
   if (!L.ytCache[topic]?.length) {
-    const r = await (await fetch('https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoDuration=short&maxResults=15&safeSearch=strict&key=' + encodeURIComponent(S_.ytKey) + '&q=' + encodeURIComponent(topic + ' #shorts'))).json();
+    const r = await (await fetch('https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoDuration=short&maxResults=15&safeSearch=strict&key=' + encodeURIComponent(l.ytKey) + '&q=' + encodeURIComponent(topic + ' #shorts'))).json();
     L.ytCache[topic] = (r.items || []).map(i => i.id.videoId).sort(() => Math.random() - .5);
   }
   const id = L.ytCache[topic].pop(); if (!id) return null;
-  return `<div class="card"><div class="mu">🎬 ${esc(topic)}</div><iframe style="width:100%;aspect-ratio:9/16;max-height:70vh;border:0;border-radius:10px" loading="lazy" src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}" allow="encrypted-media;picture-in-picture" allowfullscreen></iframe></div>`;
+  return `<div class="card"><div class="kicker">${ico('film', 16)}${esc(topic)}</div><iframe loading="lazy" src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}" allow="encrypted-media;picture-in-picture" allowfullscreen></iframe></div>`;
 }
 async function moreCards() {
   if (L.busy || S.tab !== 'learn') return; L.busy = true;
@@ -357,60 +458,183 @@ async function moreCards() {
       } catch {}
       if (h && $('#feed')) $('#feed').insertAdjacentHTML('beforeend', h);
     }
-    if (!$('#feed')?.children.length) $('#sentinel').textContent = "Couldn't load facts – check your connection.";
+    if (!$('#feed')?.children.length && $('#sentinel')) $('#sentinel').textContent = "Couldn't load content. Check your connection.";
   } finally { L.busy = false; }
 }
 
+// ---------- history ----------
+function vChart(n) {
+  const rows = chartData(n), max = Math.max(0, ...rows.map(r => r.total));
+  if (!max) return '<div class="center">No screen time logged for this period yet.</div>';
+  const totals = Object.fromEntries(ORDER.map(k => [k, rows.reduce((a, r) => a + r[k], 0)]));
+  const legend = `<div class="legend">${ORDER.filter(k => totals[k] > 0 || k !== 'other').map(k => `<div><i style="background:var(--c-${k})"></i>${NAMES[k]}<span>${fmt(totals[k])}</span></div>`).join('')}</div>`;
+  if (n === 1) {
+    const r = rows[0];
+    return `<div class="pad"><div class="sub" style="margin:0 0 4px">Total today</div><div style="font-size:34px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums">${fmt(r.total)}</div></div>` +
+      ORDER.map(k => `<div class="hbar"><div class="h"><span>${NAMES[k]}</span><span>${fmt(r[k])}</span></div><div class="tr"><i style="width:${r[k] / max * 100}%;background:var(--c-${k})"></i></div></div>`).join('');
+  }
+  const W = 340, H = 196, pl = 36, pr = 6, pt = 10, pb = 24, w = W - pl - pr, h = H - pt - pb;
+  let step = 15; for (const s of [15, 30, 60, 120, 180, 240, 360, 480]) { step = s; if (Math.ceil(max / s) <= 4) break; }
+  const top = Math.max(step, Math.ceil(max / step) * step), y = v => pt + h - v / top * h;
+  const lab = v => v === 0 ? '0' : v < 60 ? v + 'm' : (v / 60) + 'h';
+  let g = ''; for (let v = 0; v <= top; v += step) g += `<line class="grid" x1="${pl}" x2="${W - pr}" y1="${y(v)}" y2="${y(v)}"/><text class="ax" x="${pl - 6}" y="${y(v) + 4}" text-anchor="end">${lab(v)}</text>`;
+  const slot = w / n, bw = Math.min(30, slot * .64); let bars = '';
+  rows.forEach((r, i) => {
+    let acc = 0; const x = pl + i * slot + (slot - bw) / 2;
+    for (const k of ORDER) { const v = r[k]; if (!v) continue; const y0 = y(acc + v); bars += `<rect class="s-${k}" x="${x.toFixed(1)}" y="${y0.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(y(acc) - y0, 0).toFixed(1)}" stroke="var(--card)" stroke-width="1.5"/>`; acc += v; }
+    const showLab = n === 7 || i === n - 1 || i % 6 === 0;
+    if (showLab) bars += `<text class="ax" x="${(x + bw / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle">${n === 7 ? DAYS[r.date.getDay()] : r.date.getDate()}</text>`;
+  });
+  return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Screen time per day for the last ${n} days, in minutes">${g}${bars}</svg></div>${legend}`;
+}
+function vHistory() {
+  const n = { day: 1, week: 7, month: 30 }[histRange];
+  const rows = chartData(n).filter(r => r.key >= S.first), use = rows.length ? rows : chartData(1);
+  const avg = use.reduce((a, r) => a + r.total, 0) / use.length, any = chartData(n).some(r => r.total > 0);
+  const tier = tierFor(avg), s = streak(), pi = petIdx(s), nxt = PET[pi + 1];
+  const per = { day: 'today', week: 'a day this week', month: 'a day this month' }[histRange];
+  return `${head('History')}
+  <div class="group"><div class="pad">${seg('range', [['day', 'Day'], ['week', 'Week'], ['month', 'Month']], histRange).replace(/data-a="seg" data-k="range"/g, 'data-a="range"')}</div>${vChart(n)}</div>
+  <div class="section-t">Rewards</div>
+  <div class="group">${any ? `<div class="hero"><div class="you">You are a</div><div class="name">${tier.name}</div>
+    <div class="badge-art" style="background:${tier.bg}">${bigIco(tier.icon)}</div><div class="sub" style="margin:0">Averaging ${fmt(avg)} ${per}.</div></div>` : `<div class="hero"><div class="you">No badge yet</div><div class="sub" style="margin:0;max-width:280px">Your badge appears once ScrollGuard has logged some screen time.</div></div>`}
+    <div class="tiers">${TIERS.map(t => `<div class="tier ${any && t.id === tier.id ? 'on' : ''}"><b>${t.name}</b>${t.range}</div>`).join('')}</div></div>
+  <div class="group"><div class="pet-row">${petArt(pi)}<span class="lbl"><b>${PET[pi][1]}</b><span class="sub">${s}-day streak at or under your ${fmt(S.settings.threshold)} Instagram goal.</span>${nxt ? `<div class="bar-p" style="margin-top:10px"><i style="width:${Math.min(100, (s - PET[pi][0]) / (nxt[0] - PET[pi][0]) * 100)}%"></i></div><span class="sub">${nxt[0] - s} more day${nxt[0] - s === 1 ? '' : 's'} to become a ${nxt[1]}.</span>` : '<span class="sub">Top level reached.</span>'}</span></div></div>
+  <div class="section-t">Add time manually</div>
+  <div class="group"><div class="pad" style="display:grid;grid-template-columns:1fr 90px;gap:10px"><select class="field" id="manApp">${ORDER.map(k => `<option value="${k}">${NAMES[k]}</option>`).join('')}</select><input class="field" id="manMin" type="number" inputmode="numeric" placeholder="Min"></div>
+  <div class="pad"><button class="btn block" data-a="manual">Add</button></div></div>`;
+}
+
+// ---------- settings ----------
+function vSettings() {
+  const a = S.account;
+  return `${head('Settings', `<button class="link" data-a="tab" data-v="home">Done</button>`)}
+  <div class="section-t">Profile</div>
+  <div class="group"><div class="pad fields"><input class="field" id="s-name" value="${esc(a.name)}" placeholder="Name" autocomplete="given-name"><input class="field" id="s-email" type="email" value="${esc(a.email)}" placeholder="Email" autocomplete="email">
+    <div class="err" id="msg-profile"></div><button class="btn primary" data-a="saveprofile">Save changes</button></div></div>
+  <div class="section-t">Password</div>
+  <div class="group"><div class="pad fields"><input class="field" id="s-old" type="password" placeholder="Current password" autocomplete="current-password"><input class="field" id="s-new" type="password" placeholder="New password" autocomplete="new-password">
+    <div class="err" id="msg-pw"></div><button class="btn primary" data-a="changepw">Change password</button></div></div>
+  <div class="section-t">Appearance</div>
+  <div class="group"><div class="pad">${seg('theme', [['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']], S.ui.theme).replace(/data-a="seg" data-k="theme"/g, 'data-a="theme"')}</div>
+    <div class="row"><span class="lbl"><b>Accent color</b></span><div class="swatches">${ACCENTS.map(([c, n]) => `<button data-a="accent" data-v="${c}" class="${S.ui.accent === c ? 'on' : ''}" style="background:${c}" aria-label="${n}"></button>`).join('')}</div></div></div>
+  <div class="section-t">Security</div>
+  <div class="group">${trow('Ask for password when opening', '', sw('data-s="requirePw"', S.settings.requirePw))}
+    <div class="row"><span class="lbl"><b>Lock now</b></span><button class="btn sm" data-a="lock">Lock</button></div></div>
+  <div class="section-t">Data</div>
+  <div class="group"><div class="pad sub">Your profile and settings live only in this browser on this phone. They are not backed up.</div><div class="pad"><button class="btn danger block" data-a="reset">Reset ScrollGuard</button></div></div>`;
+}
+
+// ---------- render ----------
+const TABS = [['home', 'home', 'Home'], ['limits', 'sliders', 'Limits'], ['learn', 'book', 'Learn'], ['tasks', 'tasks', 'Tasks'], ['history', 'chart', 'History']];
+const VIEWS = { home: vHome, limits: vLimits, learn: vLearn, tasks: vTasks, history: vHistory, settings: vSettings };
+function applyUI() {
+  const r = document.documentElement;
+  S.ui.theme === 'auto' ? r.removeAttribute('data-theme') : r.setAttribute('data-theme', S.ui.theme);
+  r.style.setProperty('--accent', S.ui.accent);
+}
+function render() {
+  applyUI();
+  const y = scrollY, nav = $('#nav');
+  if (!S.account) { nav.hidden = true; $('#app').innerHTML = vWelcome(); return; }
+  if (S.settings.requirePw && !authed) { nav.hidden = true; $('#app').innerHTML = vLogin(); return; }
+  nav.hidden = false;
+  nav.innerHTML = TABS.map(([k, i, l]) => `<button class="${S.tab === k ? 'on' : ''}" data-a="tab" data-v="${k}" aria-label="${l}">${ico(i, 24)}${l}</button>`).join('');
+  $('#app').innerHTML = (VIEWS[S.tab] || vHome)() + (sheet ? vSheet() : '');
+  document.body.classList.toggle('lock', !!sheet);
+  if (S.tab === 'learn' && !sheet) initLearn();
+  scrollTo(0, y);
+}
+function showErr(id, msg) { const e = $('#' + id); if (e) e.textContent = msg; }
+
+// ---------- gate + usage hand-back via the URL hash ----------
+function readHash() {
+  const g = location.hash.match(/gate=([a-z]+)/), l = location.hash.match(/log=([a-z]+):([\d.]+)/);
+  if (!g && !l) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  if (l) { if (APPS[l[1]]) addUsage(l[1], Math.min(+l[2], 240)); S.pending = null; save(); }
+  if (g && APPS[g[1]]) { sheet = g[1]; S.tab = 'home'; }
+}
+const gateUrl = k => location.origin + location.pathname + '#gate=' + k;
+
 // ---------- events ----------
-document.addEventListener('click', e => {
-  const t = e.target.closest('button'); if (!t) return;
-  const d = t.dataset;
-  if (d.tab) S.tab = d.tab;
-  else if (d.launch) { const st = status(d.launch); return launch(d.launch, !st.active); }
-  else if (d.unlock) return unlock(d.unlock);
-  else if ('gateclose' in d) gate = null;
-  else if (d.gateopen) { gate = null; render(); return launch(d.gateopen, true); }
-  else if (d.copygate) { navigator.clipboard?.writeText(gateUrl(d.copygate)); t.textContent = 'Copied ✓'; return; }
-  else if ('end' in d) return endSession();
-  else if ('manual' in d) { addUsage(resolveApp($('#manApp').value), +$('#manMin').value || 0); }
-  else if (d.go) { const v = $('#h-' + d.go).value.trim(); return v ? lookup(d.go, v) : alert('Type a handle first.'); }
-  else if (d.lookup) return lookup(d.lookup);
-  else if (d.day) { const [k, i] = d.day.split('.'), a = S.apps[k].days, n = +i; a.includes(n) ? a.splice(a.indexOf(n), 1) : a.push(n); }
-  else if ('addtask' in d) { const v = $('#newTask').value.trim(); if (v) S.tasks.push({ id: 't' + Date.now(), text: v, done: false }); }
-  else if (d.deltask) S.tasks = S.tasks.filter(x => x.id !== d.deltask);
-  else if ('clear' in d) S.tasks = S.tasks.filter(x => !x.done);
-  else if ('mslogin' in d) return msLogin();
-  else if ('mssync' in d) return msSync();
-  else if ('import' in d) { $('#paste').value.split('\n').map(s => s.replace(/^[\s•\-\[\]xX○◯]+/, '').trim()).filter(Boolean).forEach((v, i) => S.tasks.push({ id: 't' + Date.now() + i, text: v, done: false })); }
-  else if ('export' in d) { navigator.clipboard?.writeText(exportConfig()); t.textContent = 'Copied ✓'; return; }
-  else if (d.rmtopic) S.learn.topics.splice(+d.rmtopic, 1);
-  else if ('addtopic' in d) { const v = $('#topic').value.trim(); if (v && !S.learn.topics.includes(v)) S.learn.topics.push(v); }
-  else return;
+const copy = (txt, btn) => { navigator.clipboard?.writeText(txt); if (btn) { const o = btn.textContent; btn.textContent = 'Copied'; setTimeout(() => btn.textContent = o, 1400); } };
+document.addEventListener('click', async e => {
+  const el = e.target.closest('[data-a]'); if (!el) return;
+  const { a, k, v } = el.dataset;
+  switch (a) {
+    case 'tab': S.tab = v; sheet = null; scrollTo(0, 0); break;
+    case 'sheet': sheet = k; break;
+    case 'close': sheet = null; break;
+    case 'openapp': sheet = null; render(); return launch(k, el.dataset.full === '1');
+    case 'go': { const h = $('#h-handle').value.trim(); return h ? lookup(k, h) : alert('Type a handle first.'); }
+    case 'search': return lookup(k);
+    case 'unlock': return unlock(k);
+    case 'seg': { const [ak, f] = k.split('.'); S.apps[ak][f] = v; break; }
+    case 'range': histRange = v; break;
+    case 'theme': S.ui.theme = v; break;
+    case 'accent': S.ui.accent = v; break;
+    case 'day': { const [ak, i] = k.split('.'), d = S.apps[ak].days, n = +i; d.includes(n) ? d.splice(d.indexOf(n), 1) : d.push(n); break; }
+    case 'end': return endSession();
+    case 'manual': addUsage($('#manApp').value, +$('#manMin').value || 0); break;
+    case 'addtask': { const t = $('#newTask').value.trim(); if (t) S.tasks.push({ id: 't' + Date.now(), text: t, done: false }); break; }
+    case 'deltask': S.tasks = S.tasks.filter(x => x.id !== v); break;
+    case 'cleartasks': S.tasks = S.tasks.filter(x => !x.done); break;
+    case 'import': $('#paste').value.split('\n').map(s => s.replace(/^[\s\-\[\]xX*]+/, '').trim()).filter(Boolean).forEach((t, i) => S.tasks.push({ id: 't' + Date.now() + i, text: t, done: false })); break;
+    case 'mslogin': return msLogin();
+    case 'mssync': return msSync();
+    case 'exportcfg': return copy(exportConfig(), el);
+    case 'copygate': return copy(gateUrl(k), el);
+    case 'addtopic': { const t = $('#topic').value.trim(); if (t && !S.learn.topics.includes(t)) S.learn.topics.push(t); break; }
+    case 'rmtopic': S.learn.topics.splice(+v, 1); break;
+    case 'lock': setAuthed(false); break;
+    case 'reset': if (!confirm('Reset ScrollGuard? This erases your profile, limits and history on this phone.')) return; localStorage.removeItem(KEY); try { sessionStorage.clear(); } catch {} location.reload(); return;
+    case 'saveprofile': {
+      const name = $('#s-name').value.trim(), email = $('#s-email').value.trim();
+      if (!name) return showErr('msg-profile', 'Enter your name.');
+      if (!/^\S+@\S+\.\S+$/.test(email)) return showErr('msg-profile', 'Enter a valid email.');
+      S.account.name = name; S.account.email = email; save(); render(); showErr('msg-profile', 'Saved.'); return;
+    }
+    case 'changepw': {
+      const old = $('#s-old').value, nw = $('#s-new').value;
+      if (await hashPw(old, S.account.salt) !== S.account.hash) return showErr('msg-pw', 'Current password is incorrect.');
+      if (nw.length < 6) return showErr('msg-pw', 'Use at least 6 characters.');
+      S.account.salt = newSalt(); S.account.hash = await hashPw(nw, S.account.salt); save(); render(); showErr('msg-pw', 'Password changed.'); return;
+    }
+    default: return;
+  }
   save(); render();
 });
 document.addEventListener('change', e => {
-  const t = e.target, d = t.dataset;
-  if (d.t) { const [k, f] = d.t.split('.'); S.apps[k].targets[f] = t.checked; }
-  else if (d.ls) S.learn.src[d.ls] = t.checked;
-  else if (d.l) S.learn[d.l] = t.type === 'checkbox' ? t.checked : t.value.trim();
-  else if (d.f) { const [k, f] = d.f.split('.'); S.apps[k][f] = t.type === 'checkbox' ? t.checked : t.value; }
-  else if (d.s) S.settings[d.s] = t.type === 'checkbox' ? t.checked : +t.value || 60;
+  const t = e.target, d = t.dataset, val = t.type === 'checkbox' ? t.checked : t.value;
+  if (d.t) { const [k, f] = d.t.split('.'); S.apps[k].targets[f] = val; }
+  else if (d.ls) S.learn.src[d.ls] = val;
+  else if (d.l) S.learn[d.l] = t.type === 'checkbox' ? val : t.value.trim();
+  else if (d.f) { const [k, f] = d.f.split('.'); S.apps[k][f] = val; }
+  else if (d.s) S.settings[d.s] = t.type === 'checkbox' ? val : (+t.value || 60);
   else if (d.toggle) return toggleTask(d.toggle);
   else if (d.ms) S.ms[d.ms] = t.value.trim();
   else return;
   save(); render();
 });
+document.addEventListener('submit', async e => {
+  const f = e.target.dataset.form; if (!f) return; e.preventDefault();
+  if (f === 'signup') {
+    const name = $('#w-name').value.trim(), email = $('#w-email').value.trim(), pw = $('#w-pw').value;
+    if (!name) return showErr('err', 'Enter your name.');
+    if (!/^\S+@\S+\.\S+$/.test(email)) return showErr('err', 'Enter a valid email.');
+    if (pw.length < 6) return showErr('err', 'Use at least 6 characters for your password.');
+    const salt = newSalt(); S.account = { name, email, salt, hash: await hashPw(pw, salt) }; S.first = dayKey();
+    setAuthed(true); save(); render();
+  } else if (f === 'login') {
+    if (await hashPw($('#l-pw').value, S.account.salt) !== S.account.hash) return showErr('err', 'That password is not correct.');
+    setAuthed(true); render();
+  }
+});
 
-// refresh lock status as time passes
-setInterval(() => { if (S.tab !== 'learn' && !document.hidden && !document.activeElement?.matches('input,textarea,select')) render(); }, 60000);
+setInterval(() => { if (S.account && S.tab !== 'learn' && !document.hidden && !document.activeElement?.matches('input,textarea,select')) render(); }, 60000);
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
-function readLog() {
-  const m = location.hash.match(/log=([a-z]+):([\d.]+)/); if (!m) return;
-  history.replaceState(null, '', location.pathname + location.search);
-  if (APPS[m[1]]) addUsage(m[1], Math.min(+m[2], 240));
-  S.pending = null; save();
-}
-readLog(); readGate();
-if (S.pending && Date.now() - S.pending.start > 3000 && !document.hidden) endSession();
-addEventListener('hashchange', () => { readLog(); readGate(); render(); });
+readHash();
+if (S.pending && Date.now() - S.pending.start > 3000 && !document.hidden) { addUsage(S.pending.app, Math.min(180, (Date.now() - S.pending.start) / 60000)); S.pending = null; save(); }
+addEventListener('hashchange', () => { readHash(); render(); });
 render(); msFinish();
